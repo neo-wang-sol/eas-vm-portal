@@ -1,0 +1,1276 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VM 與 IP 管理</title>
+<style>
+:root{--bg:#f4f6f9;--card:#fff;--line:#e2e6ec;--text:#1c2330;--mute:#6b7380;--pri:#2457d6;--pri2:#e8eefc;--ok:#15803d;--warn:#b45309;--bad:#c62828;
+  --c-free:#ffffff;--c-released:#f1f5f9;--c-cool:#fde68a;--c-applied:#a5f3fc;--c-reserved:#ddd6fe;--c-used:#86efac;--c-stopped:#d1d5db;--c-host:#93c5fd;--c-conflict:#fca5a5}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 "Segoe UI","Microsoft JhengHei",system-ui,sans-serif}
+header{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;padding:10px 20px;flex-wrap:wrap}
+header h1{font-size:17px;margin:0 8px 0 0}
+.tabs{display:flex;gap:4px}
+.tabs button{border:0;background:none;padding:7px 14px;border-radius:7px;cursor:pointer;font:inherit;color:var(--mute)}
+.tabs button.on{background:var(--pri2);color:var(--pri);font-weight:600}
+.badge{display:inline-block;min-width:18px;padding:0 5px;border-radius:9px;background:var(--bad);color:#fff;font-size:11px;text-align:center;margin-left:4px}
+.grow{flex:1}
+.pill{font-size:12px;padding:4px 10px;border-radius:12px;background:#f1f3f6;color:var(--mute);white-space:nowrap}
+.pill.ok{background:#e7f6ec;color:var(--ok)}.pill.bad{background:#fdecec;color:var(--bad)}
+main{padding:16px 20px;max-width:1400px;margin:0 auto}
+button,.btn{font:inherit;border:1px solid var(--line);background:var(--card);border-radius:7px;padding:6px 12px;cursor:pointer;color:var(--text)}
+button:hover{border-color:#b9c2cf}
+button.pri{background:var(--pri);border-color:var(--pri);color:#fff}
+button.danger{color:var(--bad);border-color:#f0c4c4}
+button.sm{padding:2px 8px;font-size:12px}
+input,select,textarea{font:inherit;border:1px solid var(--line);border-radius:7px;padding:6px 8px;background:#fff;color:var(--text);min-width:0}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--pri2);border-color:var(--pri)}
+.bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+.hosts{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;margin-bottom:12px}
+.hosts .card b{font-size:15px}.hosts .card .mute{font-size:12px}
+.mute{color:var(--mute)}
+.tblwrap{overflow:auto;background:var(--card);border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;white-space:nowrap}
+th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:left}
+th{background:#f8f9fb;font-weight:600;font-size:12px;color:var(--mute);position:sticky;top:0}
+tr.retired td{color:var(--mute);text-decoration:line-through}
+tr.retired td.act{text-decoration:none}
+#accDlg{width:min(900px,96vw)}
+.accrow{display:grid;grid-template-columns:1fr 1fr 1fr 210px;gap:6px;margin-bottom:6px;align-items:center}
+.accrow.head span{font-size:12px;color:var(--mute)}
+.accrow .btns{display:flex;gap:4px}
+.pwcell{display:flex;gap:4px}
+.pwcell input{flex:1;min-width:0}
+.pw{font-family:Consolas,monospace}
+tbody tr:hover{background:#fafbfd}
+td.num{text-align:right}
+.tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;border:1px solid transparent}
+.s-free{background:var(--c-free);border-color:var(--line)}.s-released{background:var(--c-released);border-color:#cbd5e1}.s-cool{background:var(--c-cool)}
+.s-applied{background:var(--c-applied)}.s-reserved{background:var(--c-reserved)}.s-used{background:var(--c-used)}
+.s-stopped{background:var(--c-stopped)}.s-host{background:var(--c-host)}.s-conflict{background:var(--c-conflict);font-weight:700}
+.warnip{color:var(--bad);font-weight:600}
+.iplayout{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:14px;align-items:start}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(40px,1fr));gap:4px}
+.cell{border:1px solid var(--line);border-radius:5px;height:32px;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;position:relative}
+.cell.sel{outline:2px solid var(--pri);outline-offset:1px}
+.cell.hist::after{content:"";position:absolute;right:3px;top:3px;width:5px;height:5px;border-radius:50%;background:#64748b}
+.legend{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;margin:10px 0 0}
+.legend span{display:inline-flex;align-items:center;gap:4px}
+.legend i{display:inline-block;width:14px;height:14px;border-radius:3px;border:1px solid var(--line)}
+.detail{position:sticky;top:70px}
+.detail h3{margin:0 0 6px;font-size:18px}
+.kv{display:grid;grid-template-columns:72px 1fr;gap:4px 8px;margin:10px 0;font-size:13px}
+.kv div:nth-child(odd){color:var(--mute)}
+.acts{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}
+.hist-list{margin:0;padding:0;list-style:none;font-size:12px;max-height:260px;overflow:auto;border-top:1px solid var(--line)}
+.hist-list li{padding:5px 0;border-bottom:1px dashed var(--line)}
+.probs{margin-bottom:14px}
+.probs summary{cursor:pointer;font-weight:600}
+.probs ul{margin:8px 0 0;padding-left:20px}
+.probs li.bad{color:var(--bad)}.probs li.warn{color:var(--warn)}
+dialog{border:0;border-radius:12px;padding:0;width:min(720px,94vw);box-shadow:0 20px 60px rgba(0,0,0,.25)}
+dialog::backdrop{background:rgba(20,25,35,.4)}
+dialog form,dialog .dlg{padding:18px 20px}
+dialog h2{margin:0 0 12px;font-size:17px}
+.fg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px}
+.fg label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--mute)}
+.fg .full{grid-column:1/-1}
+td.note{max-width:260px;overflow:hidden;text-overflow:ellipsis}
+.fg label.chk{flex-direction:row;align-items:center;gap:6px;color:var(--text);font-size:14px}
+.hint{font-size:12px;min-height:18px}
+.hint.bad{color:var(--bad)}.hint.ok{color:var(--ok)}.hint.warn{color:var(--warn)}
+.foot{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap}
+.foot .left{margin-right:auto;display:flex;gap:8px}
+section.set{border-top:1px solid var(--line);padding:12px 0}
+section.set:first-of-type{border-top:0;padding-top:0}
+section.set h3{margin:0 0 8px;font-size:14px}
+.connbox{background:#f8f9fb;border-radius:8px;padding:12px}
+.connbox .msg{font-size:12px;margin-top:6px}
+.notes{font-size:12px;color:var(--mute);margin:8px 0 0;padding-left:18px}
+.hostrow{display:grid;grid-template-columns:1fr 160px auto;gap:6px;margin-bottom:6px}
+.alert{background:#fff7e6;border:1px solid #f5d38a;color:#7a4b00;border-radius:8px;padding:10px 12px;margin-bottom:12px}
+.empty{padding:30px;text-align:center;color:var(--mute)}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2937;color:#fff;padding:9px 16px;border-radius:8px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:99;max-width:90vw}
+#toast.show{opacity:1}#toast.bad{background:var(--bad)}
+@media (max-width:900px){.iplayout{grid-template-columns:1fr}.detail{position:static}.fg{grid-template-columns:1fr}main{padding:12px}}
+</style>
+</head>
+<body>
+<header>
+  <h1>VM 與 IP 管理</h1>
+  <div class="tabs"><button data-tab="vm">VM 清單</button><button data-tab="ip">IP 管理<span id="ipBadge"></span></button><button data-tab="acc">帳號</button></div>
+  <div class="grow"></div>
+  <span id="pill" class="pill">未連接</span>
+  <button id="btnCopy" title="把 data.json 複製到指定的資料夾">複製 data.json</button>
+  <button id="btnSet">設定</button>
+</header>
+
+<main>
+  <div id="envAlert" class="alert" hidden></div>
+  <div id="emptyAlert" class="alert" hidden>還沒有資料。請到 <b>設定</b> 確認網段與實體機，再到 VM 清單新增 VM。</div>
+
+  <div id="tab-vm" hidden>
+    <div class="hosts" id="hostCards"></div>
+    <div class="bar">
+      <input id="q" type="search" placeholder="搜尋名稱、IP、VM ID、標籤…" style="width:260px">
+      <select id="fHost"></select>
+      <select id="fShow">
+        <option value="active">未下架</option><option value="on">上線</option><option value="off">關機（未下架）</option>
+        <option value="retired">已下架</option><option value="all">全部</option>
+      </select>
+      <span class="mute" id="vmCount"></span>
+      <div class="grow"></div>
+      <button id="btnVmCsv">匯出 CSV</button>
+      <button class="pri" id="btnAddVm">＋ 新增 VM</button>
+    </div>
+    <div class="tblwrap"><table>
+      <thead><tr><th>實體機</th><th>VM ID</th><th>名稱</th><th>IP</th><th>狀態</th><th>CPU</th><th>記憶體</th><th>標籤</th><th>等級</th><th>Proxy</th><th>EDR</th><th></th></tr></thead>
+      <tbody id="vmBody"></tbody>
+    </table></div>
+  </div>
+
+  <div id="tab-ip" hidden>
+    <details class="probs card" id="probs" open><summary id="probTitle">檢查結果</summary><ul id="probList"></ul></details>
+    <div class="iplayout">
+      <div>
+        <div class="card">
+          <div class="bar" style="margin-bottom:10px">
+            <b id="gridTitle"></b><span class="mute" id="gridStat"></span>
+            <div class="grow"></div>
+            <button class="pri" id="btnApply">申請新 IP</button>
+          </div>
+          <div class="grid" id="grid"></div>
+          <div class="legend" id="legend"></div>
+        </div>
+        <div class="bar" style="margin-top:14px">
+          <b>IP 紀錄</b>
+          <select id="fIpSt"><option value="">全部（不含從未使用）</option></select>
+          <input id="qIp" type="search" placeholder="搜尋 IP、VM、申請人、用途…" style="width:240px">
+          <div class="grow"></div>
+          <button id="btnIpCsv">匯出 CSV</button>
+        </div>
+        <div class="tblwrap"><table>
+          <thead><tr><th>IP</th><th>狀態</th><th>使用者 / 對應</th><th>申請人</th><th>用途</th><th>MIS 單號</th><th>日期</th></tr></thead>
+          <tbody id="ipBody"></tbody>
+        </table></div>
+      </div>
+      <div class="card detail" id="detail"></div>
+    </div>
+  </div>
+
+  <div id="tab-acc" hidden>
+    <div class="bar">
+      <select id="fAccShow"><option value="active">未下架的 VM</option><option value="all">全部 VM（含已下架）</option></select>
+      <span class="mute" id="accNone"></span>
+      <span class="warnip" id="accDup"></span>
+    </div>
+    <div class="bar">
+      <input id="qAcc" type="search" placeholder="搜尋帳號、負責人、VM、IP…" style="width:260px">
+      <select id="fAccOwner"></select>
+      <label style="display:flex;align-items:center;gap:4px"><input type="checkbox" id="accShowPw"> 顯示密碼</label>
+      <span class="mute" id="accCount"></span>
+    </div>
+    <div class="tblwrap"><table>
+      <thead><tr><th>負責人</th><th>帳號</th><th>密碼</th><th>VM</th><th>實體機</th><th>IP</th><th>VM 狀態</th><th></th></tr></thead>
+      <tbody id="accBody"></tbody>
+    </table></div>
+  </div>
+</main>
+
+<!-- 設定 -->
+<dialog id="setDlg"><div class="dlg">
+  <h2>設定</h2>
+  <section class="set">
+    <h3>資料夾</h3>
+    <div class="connbox">
+      <div id="connText">尚未連接資料夾</div>
+      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="pri" id="btnConn">選擇資料夾</button>
+        <button id="btnPick" hidden>換資料夾</button>
+      </div>
+      <div class="msg" id="connMsg"></div>
+    </div>
+    <ul class="notes">
+      <li>選一個同步資料夾的「子資料夾」（例如 OneDrive 裡的 VM 資料夾），程式會自動建立 <code>data.json</code>。</li>
+      <li>只支援電腦版 Chrome／Edge，且要開本機檔案（網址 file:///）；OneDrive 網頁版、分享連結、手機都不行。</li>
+      <li>不能選系統資料夾或 OneDrive 根目錄。授權時選「每次造訪都允許」可長期保留權限。</li>
+      <li>多台電腦在同步完成前同時修改，可能互相覆蓋或產生衝突副本。</li>
+    </ul>
+  </section>
+  <section class="set">
+    <h3>網段</h3>
+    <div class="fg" style="grid-template-columns:2fr 1fr 1fr 1fr">
+      <label>網段前三碼<input id="sPre"></label>
+      <label>起始<input id="sFrom" type="number" min="1" max="254"></label>
+      <label>結束<input id="sTo" type="number" min="1" max="254"></label>
+      <label>釋放冷卻天數<input id="sCool" type="number" min="0"></label>
+    </div>
+    <div class="foot" style="margin-top:8px"><button id="btnSaveNet">儲存網段</button></div>
+  </section>
+  <section class="set">
+    <h3>實體機</h3>
+    <div id="hostRows"></div>
+    <div class="foot" style="margin-top:4px"><button id="btnAddHost">＋ 新增實體機</button><button id="btnSaveHosts">儲存實體機</button></div>
+  </section>
+  <section class="set">
+    <h3>複製 data.json</h3>
+    <div class="mute" style="font-size:12px">按上方「複製 data.json」會把目前資料夾的 data.json 複製到這裡指定的資料夾（例如 OneDrive 的 _vm-manager）。第一次按時會請你選擇目的地。兩邊內容相同就不複製；目的地的檔案比較新時，會先問你要不要覆蓋。</div>
+    <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      目的地：<b id="copyTarget">尚未指定</b><div class="grow"></div>
+      <button id="btnCopyPick">指定目的地</button><button id="btnCopyClear" class="danger" hidden>清除</button>
+    </div>
+  </section>
+  <div class="foot"><button id="btnSetClose">關閉</button></div>
+</div></dialog>
+
+<!-- VM -->
+<dialog id="vmDlg"><form id="vmForm" autocomplete="off">
+  <h2 id="vmTitle">VM</h2>
+  <div class="fg">
+    <label>實體機<select name="h"></select></label>
+    <label>VM ID<input name="q" placeholder="qemu/126"></label>
+    <label class="full">名稱<input name="n" required placeholder="131.073-Project-XXX"></label>
+    <label>IP（可只輸入最後一碼）
+      <span style="display:flex;gap:6px"><input name="ip" style="flex:1"><button type="button" id="btnNextIp" class="sm">下一個可用</button></span>
+    </label>
+    <label class="chk" style="align-self:end"><input type="checkbox" name="on"> 上線（開機中）</label>
+    <div class="hint full" id="vmIpHint"></div>
+    <label>CPU<input name="cpu" type="number" min="0" step="1"></label>
+    <label>記憶體 (GiB)<input name="mem" type="number" min="0" step="0.01"></label>
+    <label>標籤<input name="tag" list="tagList"></label>
+    <label>等級<select name="lv"><option value="">—</option><option>高</option><option>中</option><option>低</option></select></label>
+    <label>Proxy<select name="px"><option value="">—</option><option value="1">是</option><option value="0">否</option></select></label>
+    <label>EDR<select name="edr"><option value="">—</option><option value="1">是</option><option value="0">否</option></select></label>
+    <label class="full">備註<textarea name="note" rows="2"></textarea></label>
+    <div class="hint full mute" id="vmOffHint"></div>
+  </div>
+  <datalist id="tagList"></datalist>
+  <div class="foot">
+    <div class="left"><button type="button" class="danger" id="btnRetire">下架並釋放 IP</button><button type="button" id="btnRestore">復原</button><button type="button" class="danger" id="btnDelVm">永久刪除</button></div>
+    <button type="button" id="btnVmCancel">取消</button><button type="submit" class="pri">儲存</button>
+  </div>
+</form></dialog>
+
+<!-- 帳號管理 -->
+<dialog id="accDlg"><div class="dlg">
+  <h2 id="accTitle">帳號管理</h2>
+  <div class="mute" id="accSub" style="font-size:12px;margin:-6px 0 12px"></div>
+  <div class="accrow head"><span>帳號</span><span>密碼</span><span>負責人</span><span></span></div>
+  <div id="accRows"></div>
+  <datalist id="ownerList"></datalist>
+  <div class="foot">
+    <div class="left"><button type="button" id="btnAccAdmin" title="VM 管理人保留的帳號，負責人空白，自動產生密碼">＋ eas-admin</button><button type="button" id="btnAccOwner" title="給專案負責人的帳號，自動產生密碼">＋ eas-owner</button><button type="button" id="btnAccAdd">＋ 其他帳號</button><label style="display:flex;align-items:center;gap:4px;font-size:13px"><input type="checkbox" id="accDlgShow"> 顯示密碼</label></div>
+    <button type="button" id="btnAccCancel">取消</button><button type="button" class="pri" id="btnAccSave">儲存</button>
+  </div>
+</div></dialog>
+
+<!-- 申請 IP -->
+<dialog id="apDlg"><form id="apForm" autocomplete="off">
+  <h2 id="apTitle">申請 IP</h2>
+  <div class="fg">
+    <label>IP（可只輸入最後一碼）<input name="ip" required></label>
+    <label>申請日期<input name="d" type="date"></label>
+    <div class="hint full" id="apHint"></div>
+    <label>申請人<input name="who"></label>
+    <label>MIS 單號<input name="tk"></label>
+    <label class="full">用途 / 預計 VM 名稱<input name="use" placeholder="131.073-Project-XXX"></label>
+    <label class="full">備註<textarea name="note" rows="2"></textarea></label>
+  </div>
+  <div class="foot">
+    <div class="left"><button type="button" id="btnCopyAp">複製申請文字</button></div>
+    <button type="button" id="btnApCancel">取消</button><button type="submit" class="pri">送出登記</button>
+  </div>
+</form></dialog>
+
+<div id="toast"></div>
+
+<script>
+/* FolderStore：以 File System Access API 讀寫資料夾中的 data.json */
+(function (global) {
+  "use strict";
+  function create(opt) {
+    var fileName = opt.fileName || "data.json";
+    var appId = opt.appId || "folder-store";
+    var clean = opt.clean || function (x) { return x; };
+    var defaults = opt.defaults || function () { return {}; };
+    var onChange = opt.onChange || function () {};
+    var onStatus = opt.onStatus || function () {};
+    var pollMs = opt.pollMs == null ? 3000 : opt.pollMs;
+    var pretty = !!opt.pretty;
+    var supported = "showDirectoryPicker" in global;
+    var inFrame = false; try { inFrame = global.self !== global.top; } catch (e) { inFrame = true; }
+    var state = clean(defaults());
+    var dir = null, fh = null, connected = false, canWrite = false;
+    var lastMod = 0, lastSaved = null, queue = Promise.resolve(), timer = null;
+    var LS = appId + ":state";
+    function loadLocal() { try { var s = localStorage.getItem(LS); if (s) state = clean(JSON.parse(s)); } catch (e) {} }
+    function saveLocal() { try { localStorage.setItem(LS, JSON.stringify(state)); } catch (e) {} }
+    function idb() { return new Promise(function (res, rej) { var r = indexedDB.open(appId, 1); r.onupgradeneeded = function () { r.result.createObjectStore("h"); }; r.onsuccess = function () { res(r.result); }; r.onerror = function () { rej(r.error); }; }); }
+    function idbSet(v) { return idb().then(function (d) { return new Promise(function (res) { var t = d.transaction("h", "readwrite"); t.objectStore("h").put(v, "dir"); t.oncomplete = res; t.onerror = res; }); }).catch(function () {}); }
+    function idbGet() { return idb().then(function (d) { return new Promise(function (res) { var r = d.transaction("h").objectStore("h").get("dir"); r.onsuccess = function () { res(r.result || null); }; r.onerror = function () { res(null); }; }); }).catch(function () { return null; }); }
+    function status() { if (inFrame) return "frame"; if (!supported) return "unsupported"; if (connected && canWrite) return "ready"; if (connected) return "readonly"; if (dir) return "resume"; return "none"; }
+    function emit(msg, err) { onStatus(status(), { dir: dir && dir.name, file: fileName, lastSaved: lastSaved, message: msg || "", error: err || null }); }
+    function getHandle() { return dir.getFileHandle(fileName, { create: canWrite }).then(function (h) { fh = h; return h; }); }
+    function readFile() {
+      return getHandle().then(function (h) { return h.getFile(); }).then(function (f) {
+        if (f.size === 0) return canWrite ? writeFile().then(function () { return false; }) : false;
+        if (f.lastModified === lastMod) return false;
+        return f.text().then(function (t) {
+          lastMod = f.lastModified;
+          try { state = clean(JSON.parse(t)); } catch (e) { emit("資料檔格式有誤，暫不讀取", e); return false; }
+          saveLocal(); return true;
+        });
+      });
+    }
+    function writeOnce(data) { return getHandle().then(function (h) { return h.createWritable({ keepExistingData: false }); }).then(function (w) { return w.write(data).then(function () { return w.close(); }); }); }
+    function writeFile() {
+      var data = JSON.stringify(state, null, pretty ? 2 : 0);
+      return writeOnce(data).catch(function (e) {
+        if (e && (e.name === "NotAllowedError" || e.name === "SecurityError")) throw e;
+        return new Promise(function (r) { setTimeout(r, 800); }).then(function () { return writeOnce(data); });
+      }).then(function () { return fh.getFile(); }).then(function (f) { lastMod = f.lastModified; lastSaved = new Date(); emit(); });
+    }
+    function ensureWrite() {
+      if (!dir || !connected || canWrite) return Promise.resolve(canWrite);
+      try {
+        return dir.requestPermission({ mode: "readwrite" }).then(function (p) { canWrite = p === "granted"; emit(canWrite ? "" : "未允許編輯，資料不會存進檔案"); return canWrite; }).catch(function (e) { emit("無法取得編輯權限", e); return false; });
+      } catch (e) { emit("無法取得編輯權限", e); return Promise.resolve(false); }
+    }
+    function attach(d, granted) {
+      dir = d; connected = true; canWrite = !!granted; lastMod = 0;
+      return idbSet(d).then(readFile).then(function () { onChange(state); emit(canWrite ? "已連接資料夾" : "已讀取，尚未允許存檔"); startPoll(); }).catch(function (e) {
+        if (e && e.name === "NotFoundError" && !canWrite) { emit("資料夾裡還沒有 " + fileName + "，允許存檔後會自動建立"); return; }
+        connected = false; emit("無法讀取資料夾", e);
+      });
+    }
+    function init() {
+      loadLocal(); onChange(state);
+      if (!supported || inFrame) { emit(); return Promise.resolve(status()); }
+      return idbGet().then(function (d) {
+        if (!d || !d.queryPermission) { emit(); return status(); }
+        dir = d;
+        return d.queryPermission({ mode: "readwrite" }).then(function (p) { if (p === "granted") return attach(d, true).then(status); emit(); return status(); });
+      }).catch(function () { emit(); return status(); });
+    }
+    function action() {
+      var st = status();
+      if (st === "readonly") return ensureWrite().then(function (ok) { if (ok) queue = queue.then(readFile).then(function (c) { if (c) onChange(state); }); });
+      if (st === "resume") return dir.requestPermission({ mode: "readwrite" }).then(function (p) { if (p === "granted") return attach(dir, true); emit("需要允許存取才能使用資料夾"); }).catch(function (e) { emit("無法取得權限", e); });
+      return pick();
+    }
+    function pick() {
+      return global.showDirectoryPicker({ id: appId, mode: "readwrite" }).then(function (d) { return d.queryPermission({ mode: "readwrite" }).then(function (p) { return attach(d, p === "granted"); }); }).catch(function (e) { if (e && e.name !== "AbortError") emit("無法開啟資料夾", e); });
+    }
+    function mutate(fn) {
+      var perm = ensureWrite();
+      queue = queue.then(function () { return perm; }).then(function () {
+        var pre = connected ? readFile().catch(function () {}) : Promise.resolve();
+        return pre.then(function () {
+          fn(state); state = clean(state); saveLocal(); onChange(state);
+          if (connected && canWrite) return writeFile().catch(function (e) { if (e && e.name === "NotAllowedError") canWrite = false; emit("沒有存到資料檔", e); });
+        });
+      });
+      return queue;
+    }
+    function startPoll() {
+      if (timer || !pollMs) return;
+      var tick = function () {
+        if (!connected || document.hidden) return;
+        queue = queue.then(function () { return readFile().then(function (c) { if (c) onChange(state); }).catch(function (e) { if (e && e.name === "NotAllowedError") { canWrite = false; emit(); } }); });
+      };
+      timer = setInterval(tick, pollMs);
+      document.addEventListener("visibilitychange", tick);
+    }
+    return { init: init, action: action, pick: pick, mutate: mutate, get state() { return state; }, get status() { return status(); }, get dir() { return connected ? dir : null; } };
+  }
+  global.FolderStore = { create: create };
+})(window);
+</script>
+
+<script>
+"use strict";
+/* ---------- 工具 ---------- */
+const $ = s => document.querySelector(s);
+const LV = ["高", "中", "低"];
+const ST = {
+  free: "可用", released: "已釋放", cool: "冷卻中", applied: "申請中", reserved: "保留",
+  used: "使用中", stopped: "關機占用", host: "實體機", conflict: "衝突"
+};
+const ACT = { apply: "申請", cancel: "取消申請", reserve: "保留", unreserve: "取消保留", assign: "指派", release: "釋放" };
+const IPRE = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
+const isObj = x => x && typeof x === "object" && !Array.isArray(x);
+const arr = x => Array.isArray(x) ? x : [];
+const str = x => typeof x === "string" ? x.trim() : (typeof x === "number" ? String(x) : "");
+const num = x => { const n = parseFloat(x); return isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : null; };
+const tri = x => x === 1 || x === true || x === "1" ? 1 : (x === 0 || x === false || x === "0" ? 0 : null);
+const clampInt = (x, lo, hi, d) => { const n = parseInt(x, 10); return isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; };
+const ipOrEmpty = x => { const s = str(x); return IPRE.test(s) ? s.split(".").map(Number).join(".") : ""; };
+const dateOr = x => /^\d{4}-\d{2}-\d{2}( \d{2}:\d{2})?$/.test(str(x)) ? str(x) : "";
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const ipNum = ip => ip.split(".").reduce((a, b) => a * 256 + +b, 0);
+const pad = n => String(n).padStart(2, "0");
+const today = () => { const d = new Date(); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); };
+const nowStamp = () => { const d = new Date(); return today() + " " + pad(d.getHours()) + ":" + pad(d.getMinutes()); };
+const daysSince = t => Math.floor((new Date(today()) - new Date(t.slice(0, 10))) / 864e5);
+const yn = v => v === 1 ? "是" : v === 0 ? "否" : "—";
+function strip(o) { for (const k in o) if (o[k] === "" || o[k] == null) delete o[k]; return o; }
+
+function el(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  if (attrs) for (const k in attrs) {
+    const v = attrs[k];
+    if (v == null || v === false) continue;
+    if (k === "class") e.className = v;
+    else if (k === "text") e.textContent = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else e.setAttribute(k, v === true ? "" : v);
+  }
+  for (const c of kids.flat()) if (c != null && c !== false) e.append(c instanceof Node ? c : String(c));
+  return e;
+}
+let toastT;
+function toast(msg, kind) { const t = $("#toast"); t.textContent = msg; t.className = "show " + (kind || ""); clearTimeout(toastT); toastT = setTimeout(() => t.className = "", 3200); }
+
+/* ---------- 資料驗證 ---------- */
+function clean(d) {
+  d = isObj(d) ? d : {};
+  const s = isObj(d.set) ? d.set : {};
+  const from = clampInt(s.from, 1, 254, 1), to = clampInt(s.to, 1, 254, 254);
+  const out = {
+    v: 1,
+    set: { pre: /^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(str(s.pre)) ? str(s.pre) : "", from: Math.min(from, to), to: Math.max(from, to), cool: clampInt(s.cool, 0, 3650, 30) },
+    hosts: [], vms: [], ipr: {}, log: []
+  };
+  const ids = new Set();
+  const newId = x => { let id = str(x) || uid(); while (ids.has(id)) id = uid(); ids.add(id); return id; };
+  arr(d.hosts).forEach(h => { if (isObj(h)) out.hosts.push(strip({ id: newId(h.id), n: str(h.n).replace(/^實體機\s*\((.+)\)$/, "$1") || "未命名", ip: ipOrEmpty(h.ip) })); });
+  arr(d.vms).forEach(v => {
+    if (!isObj(v)) return;
+    out.vms.push(strip({
+      id: newId(v.id), h: str(v.h), q: str(v.q), n: str(v.n) || "未命名", on: v.on ? 1 : 0, cpu: num(v.cpu), mem: num(v.mem),
+      tag: str(v.tag), lv: LV.includes(v.lv) ? v.lv : "", px: tri(v.px), edr: tri(v.edr), ip: ipOrEmpty(v.ip),
+      note: mergeNote(str(v.note), swText(str(v.sys), str(v.sw), str(v.ver))), off: dateOr(v.off), acc: cleanAcc(v.acc)
+    }));
+  });
+  if (isObj(d.ipr)) for (const k in d.ipr) {
+    const r = d.ipr[k], ip = ipOrEmpty(k);
+    if (ip && isObj(r) && (r.st === "applied" || r.st === "reserved"))
+      out.ipr[ip] = strip({ st: r.st, who: str(r.who), use: str(r.use), tk: str(r.tk), d: dateOr(r.d), note: str(r.note) });
+  }
+  arr(d.log).forEach(l => { if (isObj(l) && ACT[l.a] && ipOrEmpty(l.ip)) out.log.push(strip({ t: dateOr(l.t), ip: ipOrEmpty(l.ip), a: l.a, x: str(l.x) })); });
+  if (out.log.length > 3000) out.log = out.log.slice(-3000);
+  return out;
+}
+/** VM 的登入帳號：[{id, u 帳號, p 密碼, o 負責人}]，沒有帳號時回傳 null 以省略欄位；密碼保留原樣不去空白 */
+function cleanAcc(x) {
+  const ids = new Set();
+  const out = arr(x).filter(isObj).map(a => {
+    let id = str(a.id) || uid(); while (ids.has(id)) id = uid(); ids.add(id);
+    return strip({ id, u: str(a.u), p: typeof a.p === "string" ? a.p : "", o: str(a.o) });
+  }).filter(a => a.u);
+  return out.length ? out : null;
+}
+/** 舊版的系統名稱／軟體／版本欄位，改併入備註，例如「GitLab：Gitlab-ce 15.4.6」 */
+function swText(sys, sw, ver) { return [sys, [sw, ver].filter(Boolean).join(" ")].filter(Boolean).join("："); }
+function mergeNote(note, extra) { return !extra || note.includes(extra) ? note : (note ? note + "\n" + extra : extra); }
+function logIt(st, ip, a, x) { if (ip) st.log.push({ t: nowStamp(), ip, a, x: x || "" }); }
+
+/* ---------- IP 狀態分析 ---------- */
+function analyze(S) {
+  const m = new Map();
+  const get = ip => { let r = m.get(ip); if (!r) { r = { ip, occ: [], rec: null, rel: null, hist: false }; m.set(ip, r); } return r; };
+  S.hosts.forEach(h => { if (h.ip) get(h.ip).occ.push({ k: "host", o: h }); });
+  S.vms.forEach(v => { if (v.ip && !v.off) get(v.ip).occ.push({ k: "vm", o: v }); });
+  for (const ip in S.ipr) get(ip).rec = S.ipr[ip];
+  S.log.forEach(l => { const r = get(l.ip); r.hist = true; if (l.a === "release" && (!r.rel || l.t > r.rel)) r.rel = l.t; });
+  m.forEach(r => {
+    if (r.occ.length > 1) r.st = "conflict";
+    else if (r.occ.length) r.st = r.occ[0].k === "host" ? "host" : (r.occ[0].o.on ? "used" : "stopped");
+    else if (r.rec) r.st = r.rec.st;
+    else if (r.rel && daysSince(r.rel) < S.set.cool) r.st = "cool";
+    else if (r.rel) r.st = "released";
+    else r.st = "free";
+  });
+  return m;
+}
+const stOf = (A, ip) => (A.get(ip) || { st: "free" }).st;
+const isFree = st => st === "free" || st === "released";
+function rangeIps(S) { const out = []; if (!S.set.pre) return out; for (let i = S.set.from; i <= S.set.to; i++) out.push(S.set.pre + "." + i); return out; }
+function nextFree(S, A) {
+  const ips = rangeIps(S);
+  return ips.find(ip => stOf(A, ip) === "free") || ips.find(ip => stOf(A, ip) === "released") || "";
+}
+/** 使用者輸入的 IP：空字串→""，只打最後一碼→補網段，格式錯→null */
+function normIp(s) {
+  s = String(s || "").trim();
+  if (!s) return "";
+  if (/^\d{1,3}$/.test(s)) { if (!S.set.pre) return null; s = S.set.pre + "." + s; }
+  return IPRE.test(s) ? s.split(".").map(Number).join(".") : null;
+}
+/** 在實體機欄位以外（衝突訊息、IP 提示、CSV）顯示時，實體機要加上「實體機」以免和 VM 混淆 */
+function occName(o) { return o.k === "host" ? "實體機 " + o.o.n : o.o.n; }
+/** 給「這個 IP 現在能不能用」的說明；exceptVm 為正在編輯的 VM */
+function ipCheck(S, A, ip, exceptVm) {
+  const r = A.get(ip);
+  if (!r) return { ok: true, kind: "ok", text: "可用" };
+  const occ = r.occ.filter(o => !(o.k === "vm" && o.o.id === exceptVm));
+  if (occ.length) return { ok: false, kind: "bad", text: "已被使用：" + occ.map(occName).join("、") };
+  if (r.rec && r.rec.st === "applied") return { ok: true, kind: "warn", text: "此 IP 申請中（" + [r.rec.who, r.rec.use].filter(Boolean).join("／") + "），指派後會結案" };
+  if (r.rec && r.rec.st === "reserved") return { ok: true, kind: "warn", text: "此 IP 為保留（" + (r.rec.use || "未註明") + "），指派後會取消保留" };
+  if (r.rel && daysSince(r.rel) < S.set.cool) return { ok: true, kind: "warn", text: "此 IP 於 " + r.rel.slice(0, 10) + " 釋放，仍在 " + S.set.cool + " 天冷卻期內" };
+  if (r.rel) return { ok: true, kind: "ok", text: "可用（曾於 " + r.rel.slice(0, 10) + " 釋放）" };
+  return { ok: true, kind: "ok", text: "可用" };
+}
+function problems(S, A) {
+  const out = [];
+  A.forEach(r => { if (r.st === "conflict") out.push(["bad", "IP 衝突 " + r.ip + "：" + r.occ.map(occName).join("、")]); });
+  const pre2 = S.set.pre.split(".").slice(0, 2).join(".");
+  S.vms.forEach(v => {
+    if (v.off || !S.set.pre) return;
+    const m = /^(\d{1,3})\.(\d{1,3})-/.exec(v.n);
+    if (m) {
+      const exp = pre2 + "." + +m[1] + "." + +m[2];
+      if (!v.ip) out.push(["warn", "「" + v.n + "」名稱前綴是 " + exp + "，但沒有登記 IP"]);
+      else if (v.ip !== exp) out.push(["warn", "「" + v.n + "」名稱前綴與 IP " + v.ip + " 不一致"]);
+    }
+  });
+  const seen = {};
+  S.vms.forEach(v => { if (v.off || !v.q) return; const k = v.h + "|" + v.q; (seen[k] = seen[k] || []).push(v.n); });
+  for (const k in seen) if (seen[k].length > 1) out.push(["bad", "同一台實體機 VM ID 重複：" + seen[k].join("、")]);
+  for (const ip in S.ipr) { const r = S.ipr[ip]; if (r.st === "applied" && r.d && daysSince(r.d) > 30) out.push(["warn", "IP " + ip + " 申請已超過 30 天未指派（" + (r.use || r.who || "") + "）"]); }
+  return out;
+}
+
+/* ---------- 狀態 ---------- */
+let S = clean({}), A = new Map();
+const ui = { tab: "vm", sel: "" };
+ui.accOwner = "*";
+try { const t = localStorage.getItem("eas-vm-ip:tab"); ui.tab = ["ip", "acc"].includes(t) ? t : "vm"; } catch (e) {}
+const hostName = id => (S.hosts.find(h => h.id === id) || { n: "?" }).n;
+
+const store = FolderStore.create({
+  fileName: "data.json", appId: "eas-vm-ip-manager", defaults: () => ({ v: 1 }), clean, pretty: true,
+  onChange: st => { S = st; A = analyze(S); render(); },
+  onStatus
+});
+
+function edit(fn) {
+  const st = store.status;
+  if (st !== "ready" && st !== "readonly") { openSettings(); toast("請先在設定中連接資料夾", "bad"); return Promise.resolve(false); }
+  return store.mutate(fn).then(() => true);
+}
+
+/* ---------- 連線狀態 ---------- */
+let prevSt = "";
+function onStatus(st, info) {
+  const btn = $("#btnConn"), pill = $("#pill");
+  btn.textContent = { none: "選擇資料夾", resume: "繼續使用", readonly: "允許存檔", ready: "換資料夾" }[st] || "選擇資料夾";
+  btn.disabled = st === "frame" || st === "unsupported";
+  $("#btnPick").hidden = !(st === "resume" || st === "readonly");
+  const t = info.lastSaved ? " · 已存檔 " + pad(info.lastSaved.getHours()) + ":" + pad(info.lastSaved.getMinutes()) : "";
+  const map = {
+    ready: "已連接：" + info.dir + " / " + info.file + t,
+    readonly: "已讀取 " + info.dir + "，尚未允許存檔",
+    resume: "上次使用的資料夾：" + info.dir + "（需要再次允許）",
+    none: "尚未連接資料夾",
+    frame: "目前在內嵌畫面中，無法存取資料夾。請下載此 HTML，用電腦版 Chrome／Edge 開啟本機檔案。",
+    unsupported: "這個瀏覽器不支援資料夾存取。請用電腦版 Chrome／Edge 開啟本機檔案（file:///）。"
+  };
+  $("#connText").textContent = map[st];
+  const msg = $("#connMsg");
+  msg.textContent = info.message + (info.error ? "（" + info.error.name + "：" + info.error.message + "）" : "");
+  msg.style.color = info.error ? "var(--bad)" : "var(--mute)";
+  pill.textContent = st === "ready" ? "📁 " + info.dir + t : (st === "readonly" ? "唯讀" : "未連接");
+  pill.className = "pill " + (st === "ready" ? "ok" : "bad");
+  const env = $("#envAlert");
+  env.hidden = !(st === "frame" || st === "unsupported");
+  env.textContent = map[st];
+  if (info.error && st === "ready") toast("存檔失敗：" + info.error.name, "bad");
+  if (st === "ready" && prevSt && prevSt !== "ready" && $("#setDlg").open) $("#setDlg").close();
+  if (st !== "ready" && !$("#setDlg").open) openSettings();
+  prevSt = st;
+}
+function openSettings() {
+  const s = S.set;
+  $("#sPre").value = s.pre; $("#sFrom").value = s.from; $("#sTo").value = s.to; $("#sCool").value = s.cool;
+  renderHostRows(S.hosts);
+  if (!$("#setDlg").open) $("#setDlg").showModal();
+}
+
+/* ---------- 畫面 ---------- */
+function render() {
+  document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === ui.tab));
+  $("#tab-vm").hidden = ui.tab !== "vm";
+  $("#tab-ip").hidden = ui.tab !== "ip";
+  $("#tab-acc").hidden = ui.tab !== "acc";
+  $("#emptyAlert").hidden = S.vms.length > 0;
+  const probs = problems(S, A);
+  const nBad = probs.filter(p => p[0] === "bad").length;
+  $("#ipBadge").replaceChildren(nBad ? el("span", { class: "badge", text: nBad }) : "");
+  renderVm();
+  renderIp(probs);
+  renderAcc();
+}
+const vmSt = v => v.off ? ["已下架 " + v.off, "s-released"] : v.on ? ["上線", "s-used"] : ["關機", "s-stopped"];
+
+function renderVm() {
+  // 實體機卡片
+  $("#hostCards").replaceChildren(...S.hosts.map(h => {
+    const vs = S.vms.filter(v => v.h === h.id && !v.off), on = vs.filter(v => v.on);
+    const cpu = on.reduce((a, v) => a + (v.cpu || 0), 0), mem = on.reduce((a, v) => a + (v.mem || 0), 0);
+    return el("div", { class: "card" }, el("b", { text: h.n }), " ", el("span", { class: "mute", text: h.ip || "" }),
+      el("div", { class: "mute", text: "VM " + vs.length + " 台（上線 " + on.length + "）· 上線合計 CPU " + cpu + " · 記憶體 " + Math.round(mem * 100) / 100 + " GiB" }));
+  }));
+  // 篩選選單
+  const fh = $("#fHost"), cur = fh.value;
+  fh.replaceChildren(el("option", { value: "", text: "全部實體機" }), ...S.hosts.map(h => el("option", { value: h.id, text: h.n })));
+  fh.value = S.hosts.some(h => h.id === cur) ? cur : "";
+  $("#tagList").replaceChildren(...[...new Set(S.vms.map(v => v.tag).filter(Boolean))].map(t => el("option", { value: t })));
+
+  const q = $("#q").value.trim().toLowerCase(), show = $("#fShow").value;
+  const list = S.vms.filter(v => {
+    if (fh.value && v.h !== fh.value) return false;
+    if (show === "active" && v.off) return false;
+    if (show === "on" && (v.off || !v.on)) return false;
+    if (show === "off" && (v.off || v.on)) return false;
+    if (show === "retired" && !v.off) return false;
+    if (q && ![v.n, v.ip, v.q, v.tag, v.note, hostName(v.h), ...(v.acc || []).flatMap(a => [a.u, ownerOf(a)])].some(x => x && x.toLowerCase().includes(q))) return false;
+    return true;
+  }).sort((a, b) => hostName(a.h).localeCompare(hostName(b.h)) || (a.ip && b.ip ? ipNum(a.ip) - ipNum(b.ip) : (a.ip ? -1 : b.ip ? 1 : 0)) || a.n.localeCompare(b.n));
+  $("#vmCount").textContent = list.length + " 台";
+  const body = $("#vmBody");
+  if (!list.length) { body.replaceChildren(el("tr", null, el("td", { colspan: 12, class: "empty", text: S.vms.length ? "沒有符合的 VM" : "尚無資料" }))); return; }
+  body.replaceChildren(...list.map(v => {
+    const st = vmSt(v), nAcc = (v.acc || []).length;
+    const conflict = v.ip && !v.off && stOf(A, v.ip) === "conflict";
+    return el("tr", { class: v.off ? "retired" : "", ondblclick: () => openVm(v.id) },
+      el("td", { text: hostName(v.h) }), el("td", { text: v.q || "" }),
+      el("td", { text: v.n, title: v.note || "" }),
+      el("td", { class: conflict ? "warnip" : "", text: (v.ip || "—") + (conflict ? " ⚠衝突" : "") }),
+      el("td", null, el("span", { class: "tag " + st[1], text: st[0] })),
+      el("td", { class: "num", text: v.cpu ?? "" }), el("td", { class: "num", text: v.mem != null ? v.mem + " GiB" : "" }),
+      el("td", { text: v.tag || "" }), el("td", { text: v.lv || "" }), el("td", { text: yn(v.px) }), el("td", { text: yn(v.edr) }),
+      el("td", { class: "act" }, el("button", { class: "sm", text: "編輯", onclick: () => openVm(v.id) }),
+        " ", el("button", { class: "sm", text: "帳號管理" + (nAcc ? " (" + nAcc + ")" : ""), onclick: () => openAcc(v.id) }),
+        !v.off && " ", !v.off && el("button", { class: "sm danger", text: "下架", onclick: () => retireVm(v.id) })));
+  }));
+}
+
+function renderIp(probs) {
+  $("#probTitle").textContent = probs.length ? "檢查結果（" + probs.length + " 項）" : "檢查結果：沒有問題 ✓";
+  $("#probList").replaceChildren(...probs.map(p => el("li", { class: p[0], text: p[1] })));
+
+  const ips = rangeIps(S);
+  const cnt = {}; ips.forEach(ip => { const s = stOf(A, ip); cnt[s] = (cnt[s] || 0) + 1; });
+  $("#gridTitle").textContent = S.set.pre ? S.set.pre + "." + S.set.from + " – " + S.set.to : "尚未設定網段，請到「設定」填寫網段前三碼";
+  $("#gridStat").textContent = "  可用 " + ((cnt.free || 0) + (cnt.released || 0)) + " / " + ips.length;
+  $("#grid").replaceChildren(...ips.map(ip => {
+    const r = A.get(ip), s = r ? r.st : "free";
+    const tip = ip + " · " + ST[s] + (r && r.occ.length ? " · " + r.occ.map(occName).join("、") : "") + (r && r.rec ? " · " + (r.rec.use || r.rec.who || "") : "");
+    return el("button", { class: "cell s-" + s + (r && r.hist ? " hist" : "") + (ui.sel === ip ? " sel" : ""), title: tip, text: ip.split(".")[3], onclick: () => { ui.sel = ip; render(); } });
+  }));
+  $("#legend").replaceChildren(...Object.keys(ST).map(k => el("span", null, el("i", { class: "s-" + k }), ST[k] + (cnt[k] ? " " + cnt[k] : ""))),
+    el("span", { class: "mute", text: "· 右上小點＝有歷史紀錄" }));
+
+  // 紀錄表
+  const fs = $("#fIpSt");
+  if (fs.options.length === 1) Object.keys(ST).filter(k => k !== "free").forEach(k => fs.append(el("option", { value: k, text: ST[k] })));
+  const q = $("#qIp").value.trim().toLowerCase();
+  const rows = [...A.values()].filter(r => r.st !== "free" || r.hist).filter(r => !fs.value || r.st === fs.value).filter(r => {
+    if (!q) return true;
+    return [r.ip, ...r.occ.map(occName), r.rec && r.rec.who, r.rec && r.rec.use, r.rec && r.rec.tk].some(x => x && x.toLowerCase().includes(q));
+  }).sort((a, b) => ipNum(a.ip) - ipNum(b.ip));
+  $("#ipBody").replaceChildren(...(rows.length ? rows.map(r => {
+    const rec = r.rec || {};
+    const who = r.occ.length ? r.occ.map(o => (o.k === "host" ? "🖥 " : "") + o.o.n).join("、") : (r.rel ? "（前次：" + lastReleaseText(r.ip) + "）" : "");
+    return el("tr", { style: "cursor:pointer", onclick: () => { ui.sel = r.ip; render(); } },
+      el("td", { text: r.ip }), el("td", null, el("span", { class: "tag s-" + r.st, text: ST[r.st] })),
+      el("td", { text: who }), el("td", { text: rec.who || "" }), el("td", { text: rec.use || "" }), el("td", { text: rec.tk || "" }),
+      el("td", { text: rec.d || (r.rel && !r.occ.length ? r.rel.slice(0, 10) + " 釋放" : "") }));
+  }) : [el("tr", null, el("td", { colspan: 7, class: "empty", text: "沒有紀錄" }))]));
+
+  renderDetail();
+}
+function lastReleaseText(ip) { const l = [...S.log].reverse().find(l => l.ip === ip && l.a === "release"); return l ? l.x : ""; }
+
+function renderDetail() {
+  const box = $("#detail"), ip = ui.sel;
+  if (!ip) { box.replaceChildren(el("div", { class: "mute", text: "點選左側格子查看 IP 詳細資料。" })); return; }
+  const r = A.get(ip) || { ip, occ: [], rec: null, rel: null, st: "free" };
+  const kids = [el("h3", { text: ip }), el("span", { class: "tag s-" + r.st, text: ST[r.st] })];
+  const kv = el("div", { class: "kv" });
+  const add = (k, v) => v && kv.append(el("div", { text: k }), el("div", { text: v }));
+  r.occ.forEach(o => add(o.k === "host" ? "實體機" : "VM", o.k === "host" ? o.o.n : o.o.n + "（" + hostName(o.o.h) + " " + (o.o.q || "") + "，" + (o.o.on ? "上線" : "關機") + "）"));
+  if (r.rec) { add("申請人", r.rec.who); add("用途", r.rec.use); add("MIS 單號", r.rec.tk); add("日期", r.rec.d); add("備註", r.rec.note); }
+  if (r.rel) add("最近釋放", r.rel + (r.st === "cool" ? "（冷卻中）" : ""));
+  const retired = S.vms.filter(v => v.off && v.ip === ip);
+  if (retired.length) add("曾使用", retired.map(v => v.n + "（" + v.off + " 下架）").join("、"));
+  kids.push(kv);
+
+  const acts = el("div", { class: "acts" });
+  if (isFree(r.st) || r.st === "cool") {
+    acts.append(el("button", { class: "pri", text: "申請此 IP", onclick: () => openApply(ip) }),
+      el("button", { text: "設為保留", onclick: () => reserveIp(ip) }),
+      el("button", { text: "建立 VM", onclick: () => openVm(null, ip) }));
+  }
+  if (r.st === "applied") acts.append(el("button", { class: "pri", text: "建立 VM（MIS 已核准）", onclick: () => openVm(null, ip) }),
+    el("button", { text: "編輯申請", onclick: () => openApply(ip, true) }), el("button", { text: "複製申請文字", onclick: () => copyText(applyText(ip, r.rec)) }),
+    el("button", { class: "danger", text: "取消申請", onclick: () => dropRec(ip, "cancel") }));
+  if (r.st === "reserved") acts.append(el("button", { text: "建立 VM", onclick: () => openVm(null, ip) }), el("button", { class: "danger", text: "取消保留", onclick: () => dropRec(ip, "unreserve") }));
+  r.occ.filter(o => o.k === "vm").forEach(o => acts.append(el("button", { text: "開啟 " + o.o.n, onclick: () => openVm(o.o.id) }),
+    el("button", { class: "danger", text: "下架並釋放", onclick: () => retireVm(o.o.id) })));
+  kids.push(acts);
+
+  const hist = S.log.filter(l => l.ip === ip).reverse();
+  kids.push(el("div", { class: "mute", style: "font-size:12px;margin-top:6px", text: "歷史紀錄（" + hist.length + "）" }));
+  kids.push(hist.length ? el("ul", { class: "hist-list" }, ...hist.map(l => el("li", null, el("span", { class: "mute", text: l.t + "  " }), el("b", { text: ACT[l.a] + " " }), l.x || "")))
+    : el("div", { class: "mute", style: "font-size:12px", text: "沒有紀錄" }));
+  box.replaceChildren(...kids);
+}
+
+/* ---------- VM 編輯 ---------- */
+const vmForm = $("#vmForm");
+function openVm(id, presetIp) {
+  const v = id ? S.vms.find(x => x.id === id) : null;
+  if (id && !v) return toast("找不到這台 VM（可能已被其他電腦刪除）", "bad");
+  const f = vmForm;
+  f.dataset.id = v ? v.id : "";
+  f.h.replaceChildren(...S.hosts.map(h => el("option", { value: h.id, text: h.n })));
+  if (!S.hosts.length) f.h.append(el("option", { value: "", text: "（請先在設定新增實體機）" }));
+  const d = v || { h: $("#fHost").value || (S.hosts[0] && S.hosts[0].id) || "", on: 1, ip: presetIp || "" };
+  f.h.value = d.h || ""; f.q.value = d.q || ""; f.n.value = d.n || ""; f.ip.value = d.ip || ""; f.on.checked = !!d.on;
+  f.cpu.value = d.cpu ?? ""; f.mem.value = d.mem ?? ""; f.tag.value = d.tag || ""; f.lv.value = d.lv || "";
+  f.px.value = d.px == null ? "" : String(d.px); f.edr.value = d.edr == null ? "" : String(d.edr);
+  f.note.value = d.note || "";
+  if (!v && presetIp && S.ipr[presetIp] && S.ipr[presetIp].use) f.n.value = S.ipr[presetIp].use;
+  $("#vmTitle").textContent = v ? "編輯 VM" : "新增 VM";
+  $("#btnRetire").hidden = !v || !!v.off;
+  $("#btnRestore").hidden = !v || !v.off;
+  $("#btnDelVm").hidden = !v || !v.off;
+  $("#vmOffHint").textContent = v && v.off ? "此 VM 已於 " + v.off + " 下架，IP 不再占用。" : "";
+  vmIpHint();
+  $("#vmDlg").showModal();
+}
+function vmIpHint() {
+  const h = $("#vmIpHint"), ip = normIp(vmForm.ip.value), v = S.vms.find(x => x.id === vmForm.dataset.id);
+  if (ip === null) { h.className = "hint full bad"; h.textContent = "IP 格式不正確"; return; }
+  if (!ip) { h.className = "hint full mute"; h.textContent = "未填 IP"; return; }
+  if (v && v.off) { h.className = "hint full mute"; h.textContent = ip + "（已下架，僅供紀錄）"; return; }
+  const c = ipCheck(S, A, ip, vmForm.dataset.id);
+  h.className = "hint full " + c.kind; h.textContent = ip + "：" + c.text;
+}
+vmForm.ip.addEventListener("input", vmIpHint);
+$("#btnNextIp").onclick = () => { const ip = nextFree(S, A); if (ip) { vmForm.ip.value = ip; vmIpHint(); } else toast("網段內沒有可用 IP", "bad"); };
+$("#btnVmCancel").onclick = () => $("#vmDlg").close();
+vmForm.addEventListener("submit", e => {
+  e.preventDefault();
+  const f = vmForm, id = f.dataset.id;
+  const ip = normIp(f.ip.value);
+  if (ip === null) return toast("IP 格式不正確", "bad");
+  const data = {
+    h: f.h.value, q: f.q.value.trim(), n: f.n.value.trim(), on: f.on.checked ? 1 : 0, cpu: num(f.cpu.value), mem: num(f.mem.value),
+    tag: f.tag.value.trim(), lv: f.lv.value, px: tri(f.px.value), edr: tri(f.edr.value), ip,
+    note: f.note.value.trim()
+  };
+  if (!data.n) return toast("請輸入名稱", "bad");
+  const cur = S.vms.find(x => x.id === id);
+  if (ip && !(cur && cur.off)) {
+    const c = ipCheck(S, A, ip, id);
+    if (!c.ok && !confirm("IP " + ip + " " + c.text + "\n\n仍要儲存嗎？（會造成 IP 衝突）")) return;
+  }
+  edit(st => {
+    let v = id && st.vms.find(x => x.id === id);
+    if (!v) { v = { id: id || uid() }; st.vms.push(v); }
+    const old = v.off ? "" : (v.ip || "");
+    Object.assign(v, data);
+    if (!v.off && old !== (v.ip || "")) {
+      if (old) logIt(st, old, "release", v.n + " 改用 " + (v.ip || "無 IP"));
+      if (v.ip) {
+        const r = st.ipr[v.ip];
+        logIt(st, v.ip, "assign", v.n + (r ? "（原" + (r.st === "applied" ? "申請中" + (r.tk ? " 單號 " + r.tk : "") : "保留") + "）" : ""));
+        delete st.ipr[v.ip];
+      }
+    }
+  }).then(ok => { if (ok) { $("#vmDlg").close(); toast("已儲存"); } });
+});
+function retireVm(id) {
+  const v = S.vms.find(x => x.id === id);
+  if (!v || v.off) return;
+  if (!confirm("確定下架「" + v.n + "」？" + (v.ip ? "\nIP " + v.ip + " 會標記為釋放（保留歷史紀錄）。" : ""))) return;
+  edit(st => {
+    const v = st.vms.find(x => x.id === id);
+    if (!v || v.off) return;
+    v.off = today(); v.on = 0;
+    if (v.ip) logIt(st, v.ip, "release", "下架 " + v.n);
+  }).then(ok => { if (ok) { if ($("#vmDlg").open) $("#vmDlg").close(); toast("已下架" + (v.ip ? "，" + v.ip + " 已釋放" : "")); } });
+}
+$("#btnRetire").onclick = () => retireVm(vmForm.dataset.id);
+$("#btnRestore").onclick = () => {
+  const id = vmForm.dataset.id, v = S.vms.find(x => x.id === id);
+  if (!v) return;
+  const c = v.ip ? ipCheck(S, A, v.ip, id) : { ok: true };
+  if (!confirm("復原「" + v.n + "」？" + (v.ip && !c.ok ? "\nIP " + v.ip + " " + c.text + "，將以「無 IP」復原。" : ""))) return;
+  edit(st => {
+    const v = st.vms.find(x => x.id === id);
+    if (!v) return;
+    v.off = "";
+    if (v.ip) {
+      if (ipCheck(st, analyze(st), v.ip, id).ok) { logIt(st, v.ip, "assign", "復原 " + v.n); delete st.ipr[v.ip]; }
+      else v.ip = "";
+    }
+  }).then(ok => { if (ok) { $("#vmDlg").close(); toast("已復原"); } });
+};
+$("#btnDelVm").onclick = () => {
+  const id = vmForm.dataset.id, v = S.vms.find(x => x.id === id);
+  const nAcc = v ? (v.acc || []).length : 0;
+  if (!v || !confirm("永久刪除「" + v.n + "」？" + (nAcc ? "\n這台 VM 的 " + nAcc + " 個帳號也會一起刪除。" : "") + "\nIP 歷史紀錄會保留。")) return;
+  edit(st => { st.vms = st.vms.filter(x => x.id !== id); }).then(ok => { if (ok) { $("#vmDlg").close(); toast("已刪除"); } });
+};
+
+/* ---------- 帳號管理 ---------- */
+/** 負責人空白＝VM 管理人保留的帳號（系統不記錄管理人是誰） */
+const ADMIN = "VM 管理人";
+const ownerOf = a => a.o || "";
+const ownerText = o => o || ADMIN;
+let accDraft = [], accVm = "";
+function openAcc(id) {
+  const v = S.vms.find(x => x.id === id);
+  if (!v) return toast("找不到這台 VM（可能已被其他電腦刪除）", "bad");
+  accVm = id;
+  accDraft = (v.acc || []).map(a => ({ ...a }));
+  if (!accDraft.length) accDraft.push({ id: uid(), u: "", p: "", o: "" });
+  $("#accTitle").textContent = "帳號管理：" + v.n;
+  $("#accSub").textContent = [hostName(v.h), v.q, v.ip, v.off && "已下架"].filter(Boolean).join(" · ");
+  const owners = [...new Set(S.vms.flatMap(x => (x.acc || []).map(a => a.o)).filter(Boolean))].sort();
+  $("#ownerList").replaceChildren(...owners.map(o => el("option", { value: o })));
+  $("#accDlgShow").checked = false;
+  renderAccRows();
+  $("#accDlg").showModal();
+}
+function renderAccRows() {
+  const show = $("#accDlgShow").checked, box = $("#accRows");
+  box.replaceChildren(...accDraft.map((a, i) => el("div", { class: "accrow" },
+    el("input", { value: a.u || "", placeholder: "帳號", oninput: e => a.u = e.target.value }),
+    el("span", { class: "pwcell" },
+      el("input", { value: a.p || "", placeholder: "密碼", type: show ? "text" : "password", autocomplete: "new-password", class: "pw", oninput: e => a.p = e.target.value }),
+      el("button", { type: "button", class: "sm", text: "產生", title: "產生和其他帳號都不重複的隨機密碼", onclick: e => { a.p = uniquePassword(accVm); e.target.previousSibling.value = a.p; } })),
+    el("input", { value: a.o || "", placeholder: "空白＝" + ADMIN, list: "ownerList", oninput: e => a.o = e.target.value }),
+    el("span", { class: "btns" },
+      el("button", { type: "button", class: "sm", text: "複製密碼", onclick: () => a.p ? copyText(a.p) : toast("沒有密碼", "bad") }),
+      el("button", { type: "button", class: "sm", text: "匯出 Excel", title: "匯出這個帳號給負責人，含分享紀錄與自建帳號的填寫表", onclick: () => exportAccount(accVm, a) }),
+      el("button", { type: "button", class: "sm danger", text: "刪除", onclick: () => { accDraft.splice(i, 1); renderAccRows(); } })))));
+  if (!accDraft.length) box.append(el("div", { class: "mute", style: "font-size:12px;padding:6px 0", text: "這台 VM 沒有帳號（儲存後生效）" }));
+}
+/* 密碼產生：16 碼，含大小寫、數字、符號各至少一個，排除 0/O、1/l/I 等易混淆字元 */
+const PW_SETS = ["ABCDEFGHJKLMNPQRSTUVWXYZ", "abcdefghijkmnopqrstuvwxyz", "23456789", "!@#$%*-_+=?"];
+function rnd(n) { const a = new Uint32Array(1), lim = Math.floor(0x100000000 / n) * n; do crypto.getRandomValues(a); while (a[0] >= lim); return a[0] % n; }
+function genPassword(len = 16) {
+  const all = PW_SETS.join(""), c = PW_SETS.map(s => s[rnd(s.length)]);
+  while (c.length < len) c.push(all[rnd(all.length)]);
+  for (let i = c.length - 1; i > 0; i--) { const j = rnd(i + 1); [c[i], c[j]] = [c[j], c[i]]; }
+  return c.join("");
+}
+/** 其他 VM 已使用的密碼：密碼 → 「VM / 帳號」 */
+function usedPasswords(st, exceptVm) {
+  const m = new Map();
+  st.vms.forEach(v => { if (v.id !== exceptVm) (v.acc || []).forEach(a => { if (a.p && !m.has(a.p)) m.set(a.p, v.n + " / " + a.u); }); });
+  return m;
+}
+/** 產生和所有 VM（含這台視窗中的其他列）都不重複的密碼 */
+function uniquePassword(vmId) {
+  const used = usedPasswords(S, vmId), draft = new Set(accDraft.map(a => a.p));
+  let p;
+  do p = genPassword(); while (used.has(p) || draft.has(p));
+  return p;
+}
+/** 檢查要儲存的帳號密碼是否和其他 VM 或彼此重複，回傳錯誤訊息 */
+function pwConflict(st, vmId, list) {
+  const used = usedPasswords(st, vmId), seen = new Map();
+  for (const a of list) {
+    if (!a.p) continue;
+    if (used.has(a.p)) return "「" + a.u + "」的密碼和 " + used.get(a.p) + " 重複，請按「產生」換一組";
+    if (seen.has(a.p)) return "「" + a.u + "」和「" + seen.get(a.p) + "」的密碼重複，請按「產生」換一組";
+    seen.set(a.p, a.u);
+  }
+  return "";
+}
+/** 快速新增常用帳號並自動產生密碼；會取代視窗中的空白列 */
+function quickAdd(u, focusOwner) {
+  const exist = accDraft.findIndex(a => (a.u || "").trim() === u);
+  if (exist >= 0) { toast("這台 VM 已經有 " + u, "bad"); $("#accRows").children[exist].querySelector("input").focus(); return; }
+  const row = { id: uid(), u, p: uniquePassword(accVm), o: "" };
+  const blank = accDraft.findIndex(a => !a.u && !a.p && !a.o);
+  if (blank >= 0) accDraft[blank] = row; else accDraft.push(row);
+  renderAccRows();
+  const ins = $("#accRows").children[accDraft.indexOf(row)].querySelectorAll("input");
+  (focusOwner ? ins[2] : ins[0]).focus();
+}
+$("#btnAccAdmin").onclick = () => quickAdd("eas-admin", false);
+$("#btnAccOwner").onclick = () => quickAdd("eas-owner", true);
+$("#btnAccAdd").onclick = () => { accDraft.push({ id: uid(), u: "", p: "", o: "" }); renderAccRows(); $("#accRows").lastChild.querySelector("input").focus(); };
+$("#accDlgShow").onchange = renderAccRows;
+$("#btnAccCancel").onclick = () => $("#accDlg").close();
+$("#btnAccSave").onclick = () => {
+  const list = accDraft.map(a => ({ id: a.id || uid(), u: (a.u || "").trim(), p: a.p || "", o: (a.o || "").trim() })).filter(a => a.u || a.p || a.o);
+  if (list.some(a => !a.u)) return toast("帳號不可空白", "bad");
+  const dup = list.map(a => a.u).find((u, i, all) => all.indexOf(u) !== i);
+  if (dup) return toast("同一台 VM 的帳號重複：" + dup, "bad");
+  const id = accVm, conflict = pwConflict(S, id, list);
+  if (conflict) return toast(conflict, "bad");
+  let err = "";
+  edit(st => {
+    const v = st.vms.find(x => x.id === id);
+    if (!v) { err = "這台 VM 已被刪除，無法儲存"; return; }
+    // 以最新檔案內容再檢查一次，避免其他電腦剛好存了相同密碼
+    if ((err = pwConflict(st, id, list))) return;
+    v.acc = list;
+  }).then(ok => {
+    if (!ok) return;
+    if (err) return toast(err, "bad");
+    $("#accDlg").close(); toast("已儲存 " + list.length + " 個帳號");
+  });
+};
+
+/* ---------- 帳號分頁（查詢） ---------- */
+function renderAcc() {
+  const all = $("#fAccShow").value === "all", showPw = $("#accShowPw").checked;
+  const vms = S.vms.filter(v => all || !v.off);
+  const rows = vms.flatMap(v => (v.acc || []).map(a => ({ v, a })));
+  const owners = [...new Set(rows.map(({ a }) => ownerOf(a)))].sort((x, y) => (x === "") - (y === "") || x.localeCompare(y));
+  if (ui.accOwner !== "*" && !owners.includes(ui.accOwner)) ui.accOwner = "*";
+  const none = vms.filter(v => !(v.acc || []).length);
+  $("#accNone").textContent = none.length ? "沒有任何帳號的 VM：" + none.length + " 台" : "";
+  $("#accNone").title = none.map(v => v.n).join("\n");
+  // 重複使用的密碼（檢查所有 VM，含已下架）
+  const pwUse = new Map();
+  S.vms.forEach(v => (v.acc || []).forEach(a => { if (a.p) pwUse.set(a.p, [...(pwUse.get(a.p) || []), v.n + " / " + a.u]); }));
+  const dupPw = [...pwUse.entries()].filter(([, w]) => w.length > 1);
+  const dupSet = new Set(dupPw.map(([p]) => p));
+  $("#accDup").textContent = dupPw.length ? "⚠ 有 " + dupPw.length + " 組密碼重複使用" : "";
+  $("#accDup").title = dupPw.map(([, w]) => w.join("、")).join("\n");
+  const fo = $("#fAccOwner");
+  fo.replaceChildren(el("option", { value: "*", text: "全部負責人" }), ...owners.map(o => el("option", { value: o, text: ownerText(o) })));
+  fo.value = ui.accOwner;
+  const q = $("#qAcc").value.trim().toLowerCase();
+  const list = rows.filter(({ v, a }) => (ui.accOwner === "*" || ownerOf(a) === ui.accOwner) &&
+    (!q || [a.u, ownerOf(a), v.n, v.ip, hostName(v.h)].some(x => x && x.toLowerCase().includes(q))))
+    .sort((x, y) => (ownerOf(x.a) || "￿").localeCompare(ownerOf(y.a) || "￿") || x.v.n.localeCompare(y.v.n) || x.a.u.localeCompare(y.a.u));
+  $("#accCount").textContent = list.length + " 個帳號 · " + new Set(list.map(r => r.v.id)).size + " 台 VM";
+  $("#accBody").replaceChildren(...(list.length ? list.map(({ v, a }) => {
+    const st = vmSt(v);
+    return el("tr", null,
+      el("td", { text: ownerText(a.o) }), el("td", { text: a.u }),
+      el("td", null, el("span", { class: "pw", text: a.p ? (showPw ? a.p : "••••••") : "—" }),
+        dupSet.has(a.p) && el("span", { class: "warnip", text: " ⚠重複" }),
+        a.p && " ", a.p && el("button", { class: "sm", text: "複製", onclick: () => copyText(a.p) })),
+      el("td", { text: v.n }), el("td", { text: hostName(v.h) }), el("td", { text: v.ip || "—" }),
+      el("td", null, el("span", { class: "tag " + st[1], text: st[0] })),
+      el("td", null, el("button", { class: "sm", text: "管理", onclick: () => openAcc(v.id) })));
+  }) : [el("tr", null, el("td", { colspan: 8, class: "empty", text: rows.length ? "沒有符合的帳號" : "還沒有任何帳號" }))]));
+}
+/* ---------- 匯出負責人帳號 Excel（只匯出，不寫回系統） ---------- */
+const EXCELJS_URL = "https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js";
+// ExcelJS 不支援檔案加密，開啟密碼改由 xlsx-populate 加上（Excel 標準的 AES 加密）
+const XLSXPOP_URL = "https://cdn.jsdelivr.net/npm/xlsx-populate@1.21.0/browser/xlsx-populate.min.js";
+const PERM = ["管理員", "一般", "唯讀"];
+const FILL_ROWS = 100;
+const libP = {};
+/** 只在匯出時才從 CDN 載入函式庫，其他功能離線也能用 */
+function loadLib(url, name) {
+  if (window[name]) return Promise.resolve(window[name]);
+  return libP[name] || (libP[name] = new Promise((res, rej) => {
+    const s = document.createElement("script");
+    s.src = url;
+    s.onload = () => window[name] ? res(window[name]) : rej(new Error("Excel 元件載入失敗"));
+    s.onerror = () => { delete libP[name]; s.remove(); rej(new Error("無法載入 Excel 元件，請確認電腦可以連網")); };
+    document.head.append(s);
+  }));
+}
+const loadExcelJS = () => loadLib(EXCELJS_URL, "ExcelJS");
+/** 為 xlsx 加上開啟密碼 */
+async function encryptXlsx(buf, password) {
+  const XP = await loadLib(XLSXPOP_URL, "XlsxPopulate");
+  return (await XP.fromDataAsync(buf)).outputAsync({ type: "arraybuffer", password });
+}
+/** 產生給負責人的 Excel；rows 為要匯出的 [{v, a}] */
+async function buildOwnerWorkbook(owner, rows) {
+  const ExcelJS = await loadExcelJS();
+  const who = ownerText(owner), date = today();
+  const vmLabel = v => v.n + (v.ip ? "（" + v.ip + "）" : "");
+  const vms = [...new Map(rows.map(r => [r.v.id, r.v])).values()];
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "VM 與 IP 管理"; wb.created = new Date();
+  const line = { style: "thin", color: { argb: "FFD0D5DD" } };
+  const border = { top: line, left: line, bottom: line, right: line };
+  const solid = argb => ({ type: "pattern", pattern: "solid", fgColor: { argb } });
+  /** 建立表格型工作表：標題列上色並凍結；inputRows > 0 時預留可填寫的空白列 */
+  function sheet(name, cols, inputRows) {
+    const ws = wb.addWorksheet(name, { views: [{ state: "frozen", ySplit: 1 }] });
+    ws.columns = cols.map(c => ({ header: c.h, key: c.h, width: c.w }));
+    ws.getRow(1).eachCell(c => { c.font = { bold: true, color: { argb: "FFFFFFFF" } }; c.fill = solid("FF2457D6"); c.border = border; c.alignment = { vertical: "middle" }; });
+    ws.getRow(1).height = 22;
+    for (let r = 2; r <= inputRows + 1; r++) cols.forEach((c, i) => {
+      const cell = ws.getCell(r, i + 1);
+      cell.fill = solid("FFFFF8DC"); cell.border = border;
+      if (c.date) {
+        cell.numFmt = "yyyy-mm-dd";
+        cell.dataValidation = { type: "date", operator: "greaterThan", allowBlank: true, formulae: [new Date(Date.UTC(2000, 0, 1))], showErrorMessage: true, errorTitle: "日期格式", error: "請輸入日期，例如 " + date };
+      }
+      if (c.list) cell.dataValidation = { type: "list", allowBlank: true, formulae: [c.list], showErrorMessage: true, errorTitle: "請從清單選擇", error: "請從下拉選單選擇" };
+    });
+    return ws;
+  }
+
+  // 1. 填寫說明
+  const guide = wb.addWorksheet("填寫說明");
+  guide.getColumn(1).width = 110;
+  [
+    ["VM 帳號清單與使用紀錄", { bold: true, size: 16 }],
+    ["VM：" + vms.map(vmLabel).join("、") + "　　帳號：" + [...new Set(rows.map(r => r.a.u))].join("、"), { bold: true }],
+    ["負責人：" + who + "　　匯出日期：" + date],
+    [""],
+    ["一、本檔案用途", { bold: true }],
+    ["　　本檔案只記錄上述 VM 的使用狀況。帳號密碼列於工作表「帳號清單」，請妥善保管，勿轉寄或存放於公開位置；首次登入後請立即變更密碼。"],
+    ["二、需要您填寫的工作表（黃色欄位）", { bold: true }],
+    ["　　「分享紀錄」：若將本檔案的帳號密碼提供給他人使用，請逐筆記錄分享對象與日期；收回時填寫收回日期。"],
+    ["　　「自建帳號」：若登入此 VM 後自行建立其他帳號，請逐筆記錄；帳號停用時填寫停用日期。"],
+    ["　　建議：需要讓他人使用 VM 時，請為對方建立個人帳號並記錄於「自建帳號」，盡量避免多人共用同一組帳密。"],
+    ["三、權限分級", { bold: true }],
+    ["　　管理員：可安裝軟體、變更系統設定、管理帳號"],
+    ["　　一般：可登入並執行日常作業，不能變更系統設定或管理帳號"],
+    ["　　唯讀：僅能檢視，不能修改"],
+    ["四、稽核", { bold: true }],
+    ["　　稽核時請提供本檔案的最新版本。「帳號清單」工作表已鎖定，請勿修改。"]
+  ].forEach(([text, font]) => { const c = guide.addRow([text]).getCell(1); c.alignment = { wrapText: true, vertical: "top" }; if (font) c.font = font; });
+
+  // 2. 帳號清單（系統帶出，鎖定）
+  const list = sheet("帳號清單", [{ h: "VM 名稱", w: 34 }, { h: "IP", w: 16 }, { h: "實體機", w: 10 }, { h: "VM ID", w: 12 }, { h: "帳號", w: 18 }, { h: "密碼", w: 22 }, { h: "負責人", w: 12 }, { h: "匯出日期", w: 12 }], 0);
+  rows.forEach(({ v, a }) => {
+    const row = list.addRow([v.n, v.ip || "", hostName(v.h), v.q || "", a.u, a.p || "", who, date]);
+    row.eachCell({ includeEmpty: true }, c => { c.border = border; c.numFmt = "@"; });
+  });
+  await list.protect("", { selectLockedCells: true, selectUnlockedCells: true, formatColumns: true });
+
+  // 3. 分享紀錄、4. 自建帳號（負責人填寫；一份檔案只對應一台 VM，所以不需要 VM 欄位）
+  // 權限下拉選單的來源放在最後的隱藏工作表「清單」
+  sheet("分享紀錄", [{ h: "分享對象", w: 16 }, { h: "分享日期", w: 14, date: true }, { h: "原因", w: 30 }, { h: "收回日期", w: 14, date: true }, { h: "備註", w: 24 }], FILL_ROWS);
+  sheet("自建帳號", [{ h: "新建帳號", w: 18 }, { h: "權限", w: 10, list: "'清單'!$A$1:$A$" + PERM.length }, { h: "使用者", w: 16 }, { h: "建立日期", w: 14, date: true }, { h: "用途", w: 30 }, { h: "停用日期", w: 14, date: true }, { h: "備註", w: 24 }], FILL_ROWS);
+  const src = wb.addWorksheet("清單", { state: "hidden" });
+  PERM.forEach((t, i) => src.getCell(i + 1, 1).value = t);
+  return wb;
+}
+/** 匯出帳號管理視窗中的一列；只匯出已儲存的內容，避免把未存檔的帳密交出去 */
+async function exportAccount(vmId, draft) {
+  const v = S.vms.find(x => x.id === vmId);
+  const a = v && (v.acc || []).find(x => x.id === draft.id);
+  if (!a || a.u !== (draft.u || "").trim() || (a.p || "") !== (draft.p || "") || (a.o || "") !== (draft.o || "").trim())
+    return toast("這一列還沒儲存，請先按「儲存」再匯出", "bad");
+  if (!a.o) return toast("負責人空白（" + ADMIN + "）的帳號不需要匯出", "bad");
+  if (v.off) return toast("這台 VM 已下架，不需要匯出", "bad");
+  // Excel 開啟密碼＝負責人名稱
+  const pw = a.o;
+  toast("產生 Excel 中…");
+  try {
+    const wb = await buildOwnerWorkbook(a.o, [{ v, a }]);
+    const buf = await encryptXlsx(await wb.xlsx.writeBuffer(), pw);
+    const name = ("VM_" + v.n + "_" + today() + ".xlsx").replace(/[\\/:*?"<>|]/g, "_");
+    const link = el("a", { href: URL.createObjectURL(new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })), download: name });
+    link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    toast("已匯出 " + name + "（開啟密碼：負責人名稱）");
+  } catch (e) { toast("匯出失敗（" + errText(e) + "）", "bad"); }
+}
+
+$("#qAcc").oninput = renderAcc;
+$("#fAccShow").onchange = renderAcc;
+$("#accShowPw").onchange = renderAcc;
+$("#fAccOwner").onchange = e => { ui.accOwner = e.target.value; renderAcc(); };
+
+/* ---------- IP 申請 / 保留 ---------- */
+const apForm = $("#apForm");
+function openApply(ip, editing) {
+  const f = apForm, r = editing ? S.ipr[ip] : null;
+  f.dataset.edit = editing ? ip : "";
+  f.ip.value = ip || nextFree(S, A); f.ip.readOnly = !!editing;
+  f.d.value = (r && r.d) || today(); f.who.value = (r && r.who) || ""; f.tk.value = (r && r.tk) || "";
+  f.use.value = (r && r.use) || ""; f.note.value = (r && r.note) || "";
+  $("#apTitle").textContent = editing ? "編輯 IP 申請" : "申請 IP";
+  apHint();
+  $("#apDlg").showModal();
+}
+function apHint() {
+  const h = $("#apHint"), ip = normIp(apForm.ip.value);
+  if (apForm.dataset.edit) { h.className = "hint full mute"; h.textContent = ""; return; }
+  if (!ip) { h.className = "hint full bad"; h.textContent = ip === null ? "IP 格式不正確" : "請輸入 IP"; return; }
+  const r = A.get(ip);
+  if (r && r.rec && r.rec.st === "applied") { h.className = "hint full bad"; h.textContent = ip + " 已有人申請中（" + [r.rec.who, r.rec.use].filter(Boolean).join("／") + "）"; return; }
+  const c = ipCheck(S, A, ip, null);
+  h.className = "hint full " + c.kind; h.textContent = ip + "：" + c.text;
+}
+apForm.ip.addEventListener("input", apHint);
+$("#btnApCancel").onclick = () => $("#apDlg").close();
+function applyText(ip, r) {
+  return ["IP 申請", "IP：" + ip, r.use && "用途：" + r.use, r.who && "申請人：" + r.who, r.d && "日期：" + r.d, r.note && "備註：" + r.note].filter(Boolean).join("\n");
+}
+function copyText(t) { navigator.clipboard.writeText(t).then(() => toast("已複製"), () => toast("無法複製到剪貼簿", "bad")); }
+$("#btnCopyAp").onclick = () => {
+  const ip = normIp(apForm.ip.value);
+  if (!ip) return toast("請先輸入正確 IP", "bad");
+  copyText(applyText(ip, { use: apForm.use.value.trim(), who: apForm.who.value.trim(), d: apForm.d.value, note: apForm.note.value.trim() }));
+};
+apForm.addEventListener("submit", e => {
+  e.preventDefault();
+  const f = apForm, editing = f.dataset.edit, ip = editing || normIp(f.ip.value);
+  if (!ip) return toast("IP 格式不正確", "bad");
+  const rec = { st: "applied", who: f.who.value.trim(), use: f.use.value.trim(), tk: f.tk.value.trim(), d: f.d.value, note: f.note.value.trim() };
+  if (!editing) {
+    const r = A.get(ip), c = ipCheck(S, A, ip, null);
+    if (!c.ok || (r && r.rec && r.rec.st === "applied")) return toast(ip + " 無法申請：" + (c.ok ? "已有人申請中" : c.text), "bad");
+    if (r && r.st === "cool" && !confirm(c.text + "\n仍要申請嗎？")) return;
+  }
+  let err = "";
+  edit(st => {
+    if (!editing) {
+      // 以最新檔案內容再檢查一次，避免兩台電腦同時申請同一個 IP
+      const r = analyze(st).get(ip);
+      if (r && (r.occ.length || r.rec)) { err = ip + " 剛被其他人使用或申請，請換一個"; return; }
+      logIt(st, ip, "apply", [rec.who, rec.use, rec.tk && "單號 " + rec.tk].filter(Boolean).join("／"));
+    } else if (!st.ipr[ip]) { err = "這筆申請已不存在"; return; }
+    st.ipr[ip] = rec;
+  }).then(ok => {
+    if (!ok) return;
+    if (err) { toast(err, "bad"); apHint(); return; }
+    $("#apDlg").close(); ui.sel = ip; render(); toast(editing ? "已更新" : "已登記申請 " + ip);
+  });
+});
+function reserveIp(ip) {
+  const why = prompt("保留 " + ip + " 的原因（例如閘道、印表機、MIS 保留）：", "");
+  if (why == null) return;
+  let err = "";
+  edit(st => {
+    const r = analyze(st).get(ip);
+    if (r && (r.occ.length || r.rec)) { err = ip + " 已被使用或申請"; return; }
+    st.ipr[ip] = { st: "reserved", use: why.trim(), d: today() };
+    logIt(st, ip, "reserve", why.trim());
+  }).then(ok => { if (ok) toast(err || "已保留 " + ip, err ? "bad" : ""); });
+}
+function dropRec(ip, a) {
+  if (!confirm((a === "cancel" ? "取消 " + ip + " 的申請？" : "取消 " + ip + " 的保留？"))) return;
+  edit(st => { const r = st.ipr[ip]; if (!r) return; logIt(st, ip, a, r.use || r.who || ""); delete st.ipr[ip]; }).then(ok => { if (ok) toast("已取消"); });
+}
+
+/* ---------- 設定 ---------- */
+let hostDraft = [];
+function renderHostRows(list) {
+  hostDraft = list.map(h => ({ ...h }));
+  const box = $("#hostRows");
+  box.replaceChildren(...hostDraft.map((h, i) => el("div", { class: "hostrow" },
+    el("input", { value: h.n || "", placeholder: "名稱", oninput: e => hostDraft[i].n = e.target.value }),
+    el("input", { value: h.ip || "", placeholder: "IP", oninput: e => hostDraft[i].ip = e.target.value }),
+    el("button", { class: "sm danger", text: "移除", onclick: () => { hostDraft.splice(i, 1); renderHostRows(hostDraft); } }))));
+  if (!hostDraft.length) box.append(el("div", { class: "mute", style: "font-size:12px", text: "尚無實體機" }));
+}
+$("#btnAddHost").onclick = () => { hostDraft.push({ id: uid(), n: "", ip: "" }); renderHostRows(hostDraft); };
+$("#btnSaveHosts").onclick = () => {
+  for (const h of hostDraft) {
+    if (!h.n.trim()) return toast("實體機名稱不可空白", "bad");
+    if (normIp(h.ip) === null) return toast("「" + h.n + "」IP 格式不正確", "bad");
+  }
+  const keep = new Set(hostDraft.map(h => h.id));
+  const used = S.hosts.filter(h => !keep.has(h.id) && S.vms.some(v => v.h === h.id && !v.off));
+  if (used.length) return toast("「" + used[0].n + "」還有 VM，不能移除", "bad");
+  const list = hostDraft.map(h => ({ id: h.id, n: h.n.trim(), ip: normIp(h.ip) }));
+  edit(st => { st.hosts = list; }).then(ok => { if (ok) toast("已儲存實體機"); });
+};
+$("#btnSaveNet").onclick = () => {
+  const pre = $("#sPre").value.trim();
+  if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(pre) || !IPRE.test(pre + ".1")) return toast("網段請輸入前三碼（三組 0–255 的數字，以點隔開）", "bad");
+  const set = { pre, from: $("#sFrom").value, to: $("#sTo").value, cool: $("#sCool").value };
+  edit(st => { Object.assign(st.set, set); }).then(ok => { if (ok) toast("已儲存網段"); });
+};
+$("#btnConn").onclick = () => store.action();
+$("#btnPick").onclick = () => store.pick();
+$("#btnSet").onclick = openSettings;
+$("#btnSetClose").onclick = () => $("#setDlg").close();
+
+/* ---------- 複製 data.json 到其他資料夾 ---------- */
+const COPY_DB = "eas-vm-ip-manager:copy";
+let copyDir = null;
+function copyDb() { return new Promise((res, rej) => { const r = indexedDB.open(COPY_DB, 1); r.onupgradeneeded = () => r.result.createObjectStore("h"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+function copyGet() { return copyDb().then(d => new Promise(res => { const r = d.transaction("h").objectStore("h").get("dir"); r.onsuccess = () => res(r.result || null); r.onerror = () => res(null); })).catch(() => null); }
+function copySet(v) { return copyDb().then(d => new Promise(res => { const t = d.transaction("h", "readwrite"); if (v) t.objectStore("h").put(v, "dir"); else t.objectStore("h").delete("dir"); t.oncomplete = res; t.onerror = res; })).catch(() => {}); }
+function renderCopy() {
+  $("#copyTarget").textContent = copyDir ? copyDir.name : "尚未指定";
+  $("#btnCopyPick").textContent = copyDir ? "變更目的地" : "指定目的地";
+  $("#btnCopyClear").hidden = !copyDir;
+}
+const errText = e => (e && e.name ? e.name + "：" : "") + (e && e.message || e);
+const fmtTime = ms => { const d = new Date(ms); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " " + pad(d.getHours()) + ":" + pad(d.getMinutes()); };
+/** 選擇目的地；與目前資料夾相同時拒絕 */
+async function pickCopyDir() {
+  let d;
+  try { d = await window.showDirectoryPicker({ id: "eas-vm-ip-copy", mode: "readwrite" }); }
+  catch (e) { if (e.name !== "AbortError") toast("無法開啟資料夾（" + errText(e) + "）", "bad"); return null; }
+  const src = store.dir;
+  if (src && await src.isSameEntry(d)) { toast("目的地不能和目前的資料夾相同", "bad"); return null; }
+  copyDir = d; await copySet(d); renderCopy();
+  return d;
+}
+async function writeText(dir, name, text) {
+  const once = async () => { const w = await (await dir.getFileHandle(name, { create: true })).createWritable({ keepExistingData: false }); await w.write(text); await w.close(); };
+  try { await once(); }
+  catch (e) {
+    if (e.name === "NotAllowedError" || e.name === "SecurityError") throw e;
+    await new Promise(r => setTimeout(r, 800)); await once();
+  }
+}
+async function copyData() {
+  const src = store.dir;
+  if (!src) { openSettings(); toast("請先連接資料夾", "bad"); return; }
+  // 授權視窗必須在點擊當下（第一個 await 之前）觸發
+  let dst = copyDir;
+  try {
+    if (!dst) { dst = await pickCopyDir(); if (!dst) return; }
+    else if (await dst.requestPermission({ mode: "readwrite" }) !== "granted") { toast("未允許存取目的地資料夾", "bad"); return; }
+  } catch (e) { toast("無法存取目的地（" + errText(e) + "），請到設定重新指定", "bad"); return; }
+  try {
+    const sf = await (await src.getFileHandle("data.json")).getFile();
+    const text = await sf.text();
+    let tf = null;
+    try { tf = await (await dst.getFileHandle("data.json")).getFile(); } catch (e) { if (e.name !== "NotFoundError") throw e; }
+    if (tf) {
+      if (await tf.text() === text) { toast("內容相同，不需複製"); return; }
+      if (tf.lastModified > sf.lastModified && !confirm("目的地「" + dst.name + "」的 data.json 比較新（" + fmtTime(tf.lastModified) + "），可能有人在那邊改過資料。\n\n仍要用目前的 data.json（" + fmtTime(sf.lastModified) + "）覆蓋嗎？")) return;
+    }
+    await writeText(dst, "data.json", text);
+    toast("已複製 data.json 到「" + dst.name + "」");
+  } catch (e) { toast("複製失敗（" + errText(e) + "）", "bad"); }
+}
+$("#btnCopy").onclick = copyData;
+$("#btnCopyPick").onclick = () => { pickCopyDir().then(d => d && toast("目的地：" + d.name)); };
+$("#btnCopyClear").onclick = () => { copyDir = null; copySet(null); renderCopy(); };
+copyGet().then(d => { copyDir = d; renderCopy(); });
+
+/* ---------- 匯出 ---------- */
+function downloadCsv(name, rows) {
+  const csv = "﻿" + rows.map(r => r.map(c => { c = c == null ? "" : String(c); return /[",\n]/.test(c) ? '"' + c.replace(/"/g, '""') + '"' : c; }).join(",")).join("\r\n");
+  const a = el("a", { href: URL.createObjectURL(new Blob([csv], { type: "text/csv" })), download: name });
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+$("#btnVmCsv").onclick = () => downloadCsv("VM清單_" + today() + ".csv", [["實體機", "VM ID", "名稱", "IP", "上線", "下架日", "CPU", "記憶體GiB", "標籤", "等級", "Proxy", "EDR", "備註"],
+  ...S.vms.map(v => [hostName(v.h), v.q, v.n, v.ip, v.on ? "是" : "否", v.off, v.cpu, v.mem, v.tag, v.lv, yn(v.px), yn(v.edr), v.note])]);
+$("#btnIpCsv").onclick = () => downloadCsv("IP清單_" + today() + ".csv", [["IP", "狀態", "使用者", "申請人", "用途", "MIS單號", "日期", "最近釋放"],
+  ...[...A.values()].sort((a, b) => ipNum(a.ip) - ipNum(b.ip)).map(r => [r.ip, ST[r.st], r.occ.map(occName).join("、"), r.rec && r.rec.who, r.rec && r.rec.use, r.rec && r.rec.tk, r.rec && r.rec.d, r.rel])]);
+
+/* ---------- 事件 ---------- */
+document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => { ui.tab = b.dataset.tab; try { localStorage.setItem("eas-vm-ip:tab", ui.tab); } catch (e) {} render(); });
+$("#q").oninput = renderVm; $("#fHost").onchange = renderVm; $("#fShow").onchange = renderVm;
+$("#qIp").oninput = () => renderIp(problems(S, A)); $("#fIpSt").onchange = () => renderIp(problems(S, A));
+$("#btnAddVm").onclick = () => openVm(null);
+$("#btnApply").onclick = () => openApply("");
+
+store.init();
+</script>
+</body>
+</html>
