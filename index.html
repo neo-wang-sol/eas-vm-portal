@@ -106,6 +106,7 @@ section.set h3{margin:0 0 8px;font-size:14px}
   <div class="grow"></div>
   <span id="pill" class="pill">未連接</span>
   <button id="btnCopy" title="把 data.json 複製到指定的資料夾">複製 data.json</button>
+  <button id="btnPub" class="pri" hidden title="把資料發佈給各負責人與 MIS，並同步負責人填寫的紀錄">發佈並同步</button>
   <button id="btnSet">設定</button>
 </header>
 
@@ -190,7 +191,7 @@ section.set h3{margin:0 0 8px;font-size:14px}
       <button class="pri" id="btnAddOwn">＋ 新增負責人</button>
     </div>
     <div class="tblwrap"><table>
-      <thead><tr><th>名稱</th><th>代號</th><th>GitHub repo</th><th>聯絡方式</th><th>token 到期日</th><th>狀態</th><th>帳號</th><th>VM</th><th>備註</th><th></th></tr></thead>
+      <thead><tr><th>名稱</th><th>代號</th><th>GitHub repo</th><th>聯絡方式</th><th>token 到期日</th><th>狀態</th><th>帳號</th><th>VM</th><th>同步紀錄</th><th>備註</th><th></th></tr></thead>
       <tbody id="ownBody"></tbody>
     </table></div>
   </div>
@@ -306,6 +307,21 @@ section.set h3{margin:0 0 8px;font-size:14px}
     <button type="button" id="btnOwnCancel">取消</button><button type="submit" class="pri">儲存</button>
   </div>
 </form></dialog>
+
+<!-- 發佈並同步結果 -->
+<dialog id="pubDlg"><div class="dlg">
+  <h2>發佈並同步</h2>
+  <div class="mute" id="pubSub" style="font-size:12px;margin:-6px 0 10px"></div>
+  <div class="tblwrap"><table>
+    <thead><tr><th>對象</th><th>repo</th><th>發佈</th><th>同步紀錄</th><th>紀錄變化</th></tr></thead>
+    <tbody id="pubBody"></tbody>
+  </table></div>
+  <div class="mute" style="font-size:12px;margin-top:8px">「沒有變更」表示內容跟 GitHub 上的一樣，所以沒有另外寫入。</div>
+  <div class="foot">
+    <button type="button" id="btnPubRetry" hidden>重試失敗的</button>
+    <button type="button" class="pri" id="btnPubClose">關閉</button>
+  </div>
+</div></dialog>
 
 <!-- 帳號管理 -->
 <dialog id="accDlg"><div class="dlg">
@@ -594,7 +610,7 @@ function clean(d) {
   const out = {
     v: 1,
     set: { pre: /^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(str(s.pre)) ? str(s.pre) : "", from: Math.min(from, to), to: Math.max(from, to), cool: clampInt(s.cool, 0, 3650, 30) },
-    hosts: [], owners: [], vms: [], ipr: {}, log: []
+    hosts: [], owners: [], vms: [], ipr: {}, log: [], records: {}
   };
   const ids = new Set();
   const newId = x => { let id = str(x) || uid(); while (ids.has(id)) id = uid(); ids.add(id); return id; };
@@ -623,6 +639,8 @@ function clean(d) {
   }
   arr(d.log).forEach(l => { if (isObj(l) && ACT[l.a] && ipOrEmpty(l.ip)) out.log.push(strip({ t: dateOr(l.t), ip: ipOrEmpty(l.ip), a: l.a, x: str(l.x) })); });
   if (out.log.length > 3000) out.log = out.log.slice(-3000);
+  // 負責人同步回來的紀錄：{負責人 id: {at 紀錄最後有變化的同步時間, shares 分享紀錄, created 自建帳號}}；管理員只能查看
+  if (isObj(d.records)) for (const k in d.records) { const r = d.records[k]; if (isObj(r)) out.records[k] = { at: dateOr(r.at), ...cleanRecords(r) }; }
   return out;
 }
 /** VM 的登入帳號：[{id, u 帳號, p 密碼, oid 負責人 id, o 舊版自由輸入的負責人名稱（尚未對應）}]
@@ -635,6 +653,14 @@ function cleanAcc(x) {
     return strip({ id, u: str(a.u), p: typeof a.p === "string" ? a.p : "", oid, o: oid ? "" : str(a.o) });
   }).filter(a => a.u);
   return out.length ? out : null;
+}
+/** 負責人填寫的紀錄（records.json）：只保留已知欄位的字串，自建帳號不收密碼 */
+function cleanRecords(x) {
+  const list = (a, keys) => arr(a).filter(isObj).map(r => { const o = {}; keys.forEach(k => { const v = str(r[k]); if (v) o[k] = v; }); return o; }).filter(r => r.id);
+  return {
+    shares: list(x && x.shares, ["id", "acc", "to", "date", "reason", "revoked", "note", "updated"]),
+    created: list(x && x.created, ["id", "vmid", "u", "perm", "user", "date", "purpose", "disabled", "note", "updated"])
+  };
 }
 /** 舊版的系統名稱／軟體／版本欄位，改併入備註，例如「GitLab：Gitlab-ce 15.4.6」 */
 function swText(sys, sw, ver) { return [sys, [sw, ver].filter(Boolean).join(" ")].filter(Boolean).join("："); }
@@ -730,11 +756,12 @@ const storeOpts = { fileName: "data.json", defaults: () => ({ v: 1 }), clean, pr
 const store = GH ? GitHubStore.create({ ...storeOpts, owner: GH.owner, repo: GH.repo, token: GH.token })
                  : FolderStore.create({ ...storeOpts, appId: "eas-vm-ip-manager" });
 
-function edit(fn) {
+/** 修改資料；msg 為 GitHub 模式下的 commit 訊息（本機資料夾模式忽略） */
+function edit(fn, msg) {
   const st = store.status;
   if (st !== "ready" && st !== "readonly") { openSettings(); toast(GH ? "尚未連線 GitHub，請到設定檢查" : "請先在設定中連接資料夾", "bad"); return Promise.resolve(false); }
   // GitHub 寫入失敗時 mutate 會回傳 false，呼叫端就不會顯示「已儲存」
-  return store.mutate(fn).then(r => r !== false);
+  return store.mutate(fn, msg).then(r => r !== false);
 }
 
 /* ---------- 連線狀態 ---------- */
@@ -1232,9 +1259,10 @@ function renderOwn() {
       el("td", { text: o.contact || "" }), el("td", { class: e[1], text: e[0] }),
       el("td", null, el("span", { class: "tag " + (o.off ? "s-released" : "s-used"), text: o.off ? "停用" : "啟用" })),
       el("td", { class: "num", text: u.n }), el("td", { class: "num", text: u.vms }),
+      el("td", { class: "mute", text: recSummary(o.id) }),
       el("td", { class: "note", text: o.note || "", title: o.note || "" }),
       el("td", { class: "act" }, el("button", { class: "sm", text: "編輯", onclick: () => openOwner(o.id) })));
-  }) : [el("tr", null, el("td", { colspan: 10, class: "empty", text: S.owners.length ? "沒有符合的負責人" : "還沒有負責人，請按「＋ 新增負責人」" }))]));
+  }) : [el("tr", null, el("td", { colspan: 11, class: "empty", text: S.owners.length ? "沒有符合的負責人" : "還沒有負責人，請按「＋ 新增負責人」" }))]));
 }
 function mapTo(name, oid) {
   const o = ownerById(oid);
@@ -1310,6 +1338,145 @@ $("#btnOwnDel").onclick = () => {
 $("#btnAddOwn").onclick = () => openOwner(null);
 $("#qOwn").oninput = renderOwn;
 $("#fOwnShow").onchange = renderOwn;
+
+/* ---------- 發佈並同步：管理員 → 各負責人、MIS；負責人的紀錄 → 管理員 ---------- */
+const MIS_REPO = "eas-vm-mis";
+/** 負責人分頁的「同步紀錄」欄 */
+function recSummary(oid) {
+  const r = S.records[oid];
+  return r ? "分享 " + r.shares.length + "・自建 " + r.created.length + "（" + (r.at || "").slice(5) + "）" : "—";
+}
+function ghReq(repo, path, opt = {}) {
+  return fetch("https://api.github.com/repos/" + encodeURIComponent(GH.owner) + "/" + encodeURIComponent(repo) + (path ? "/contents/" + path : ""), {
+    method: opt.method || "GET", cache: "no-store",
+    headers: Object.assign({ Authorization: "Bearer " + GH.token, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" }, opt.body ? { "Content-Type": "application/json" } : {}),
+    body: opt.body ? JSON.stringify(opt.body) : undefined
+  });
+}
+const ghErr = (res, what) => Object.assign(new Error(what + "（HTTP " + res.status + "）"), { status: res.status });
+const b64dec = s => new TextDecoder().decode(Uint8Array.from(atob(s.replace(/\s/g, "")), c => c.charCodeAt(0)));
+function b64enc(text) { const u = new TextEncoder().encode(text); let s = ""; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); }
+/** 讀取 repo 中的 JSON 檔：回傳 {sha, data}；檔案不存在回傳 null；repo 不存在或沒有權限則丟出錯誤 */
+async function ghGet(repo, path) {
+  const res = await ghReq(repo, path);
+  if (res.status === 404) {
+    const r2 = await ghReq(repo, "");   // 分辨「檔案還不存在」與「repo 不存在／token 沒有權限」
+    if (!r2.ok) throw ghErr(r2, r2.status === 404 ? "找不到 " + repo + "，或 token 沒有權限" : "無法存取 " + repo);
+    return null;
+  }
+  if (!res.ok) throw ghErr(res, "讀取 " + repo + " 失敗");
+  const j = await res.json();
+  return { sha: j.sha, data: JSON.parse(b64dec(j.content)) };
+}
+/** 寫入 JSON 檔；除了發佈時間以外內容都沒變時不寫，避免多餘的 commit。回傳 true＝有寫入 */
+async function ghPut(repo, path, data, msg) {
+  const cur = await ghGet(repo, path);
+  const sansTime = d => { const { published, ...rest } = d || {}; return JSON.stringify(rest); };
+  if (cur && sansTime(cur.data) === sansTime(data)) return false;
+  const body = { message: msg, content: b64enc(JSON.stringify(data, null, 2) + "\n") };
+  if (cur) body.sha = cur.sha;
+  const res = await ghReq(repo, path, { method: "PUT", body });
+  if (!res.ok) throw ghErr(res, res.status === 403 || res.status === 404 ? "token 沒有寫入 " + repo + " 的權限" : "寫入 " + repo + " 失敗");
+  return true;
+}
+/** 發佈給負責人的資料：只有他負責的帳號（含密碼），以及這些帳號所在、未下架的 VM */
+function ownerPayload(o) {
+  const vms = S.vms.filter(v => !v.off)
+    .map(v => ({ v, acc: (v.acc || []).filter(a => a.oid === o.id) })).filter(x => x.acc.length)
+    .map(({ v, acc }) => ({ vmid: v.q || "", name: v.n, ip: v.ip || "", host: hostName(v.h), accounts: acc.map(a => ({ id: a.id, u: a.u, p: a.p || "" })) }));
+  return { v: 1, owner: { code: o.code, name: o.n }, published: nowStamp(), vms };
+}
+/** 發佈給 MIS 的資料：管理員資料的完整副本，但帳號一律不含密碼 */
+function misPayload(st) {
+  return {
+    v: 1, published: nowStamp(), set: st.set, hosts: st.hosts, owners: st.owners,
+    vms: st.vms.map(v => Object.assign({}, v, { acc: v.acc ? v.acc.map(a => strip({ id: a.id, u: a.u, oid: a.oid, o: a.o })) : undefined })),
+    ipr: st.ipr, log: st.log, records: st.records
+  };
+}
+/** 安全檢查：資料中任何層級只要出現密碼欄位（p）就回傳 true */
+function hasPassword(x) {
+  if (Array.isArray(x)) return x.some(hasPassword);
+  if (isObj(x)) return Object.keys(x).some(k => k === "p" || hasPassword(x[k]));
+  return false;
+}
+/** 比對兩次同步的紀錄：新增、修改、刪除筆數 */
+function diffRecords(prev, next) {
+  const d = { add: 0, mod: 0, del: [] };
+  [["shares", "分享紀錄"], ["created", "自建帳號"]].forEach(([k, label]) => {
+    const pm = new Map(((prev && prev[k]) || []).map(r => [r.id, JSON.stringify(r)]));
+    const nm = new Map(next[k].map(r => [r.id, JSON.stringify(r)]));
+    nm.forEach((v, id) => { if (!pm.has(id)) d.add++; else if (pm.get(id) !== v) d.mod++; });
+    pm.forEach((v, id) => { if (!nm.has(id)) d.del.push(label); });
+  });
+  return d;
+}
+let pubRunning = false, pubFailed = [];
+function pubRow(name, repo, pub, sync, change, bad) {
+  return el("tr", null, el("td", { text: name }), el("td", { class: "mute", text: repo }),
+    el("td", { class: bad ? "warnip" : "", text: pub }), el("td", { text: sync }), change);
+}
+function diffCell(d) {
+  if (!d) return el("td", { text: "—" });
+  const parts = [d.add && "新增 " + d.add, d.mod && "修改 " + d.mod].filter(Boolean);
+  return el("td", null, parts.length || d.del.length ? parts.join("、") : "沒有變化",
+    d.del.length ? el("span", { class: "warnip", text: (parts.length ? "、" : "") + "⚠ 刪除 " + d.del.length + "（" + [...new Set(d.del)].join("、") + "）" }) : "");
+}
+/** 發佈並同步；only 為要重試的負責人 id 清單 */
+async function publishAndSync(only) {
+  if (!GH || store.status !== "ready") return toast("需要先連線 GitHub", "bad");
+  if (pubRunning) return;
+  const owners = S.owners.filter(o => !o.off && (!only || only.includes(o.id))).sort(byName);
+  const skipped = only ? 0 : S.owners.filter(o => o.off).length;
+  if (!only && !confirm("發佈給 " + owners.length + " 位負責人與 MIS，並同步負責人填寫的紀錄？" + (skipped ? "\n（已停用的 " + skipped + " 位不發佈）" : ""))) return;
+  pubRunning = true; pubFailed = [];
+  const body = $("#pubBody");
+  body.replaceChildren();
+  $("#pubSub").textContent = "處理中…";
+  $("#btnPubRetry").hidden = true; $("#btnPubClose").disabled = true;
+  $("#pubDlg").showModal();
+  const results = [];
+  for (const o of owners) {
+    const repo = OWNER_REPO + o.code, r = { o };
+    try { r.pub = (await ghPut(repo, "data.json", ownerPayload(o), "發佈：管理員更新資料")) ? "已發佈" : "沒有變更"; }
+    catch (e) { r.err = e.message; }
+    if (!r.err) {
+      try {
+        const cur = await ghGet(repo, "records.json");
+        r.rec = cleanRecords(cur ? cur.data : {});
+        r.diff = diffRecords(S.records[o.id], r.rec);
+        r.changed = !S.records[o.id] || r.diff.add || r.diff.mod || r.diff.del.length;
+        r.sync = cur ? "已同步" : "尚無紀錄";
+      } catch (e) { r.err = e.message; }
+    }
+    if (r.err) pubFailed.push(o.id);
+    results.push(r);
+    body.append(pubRow(o.n, repo, r.err ? "失敗：" + r.err : r.pub, r.err ? "—" : r.sync, diffCell(r.diff), !!r.err));
+  }
+  // 有變化的紀錄才寫入管理員資料（一筆 commit，紀錄的歷史留在 GitHub）；都沒變化就不寫
+  const changed = results.filter(r => r.rec && r.changed);
+  const saved = !changed.length || await edit(st => {
+    changed.forEach(r => { st.records[r.o.id] = Object.assign({ at: nowStamp() }, r.rec); });
+  }, "發佈並同步：同步負責人紀錄");
+  // 發佈 MIS：以剛更新的管理員資料產生不含密碼的副本
+  let mis;
+  if (!saved) mis = { err: "管理員資料沒有存成功，未發佈 MIS" };
+  else {
+    const payload = misPayload(S);
+    if (hasPassword(payload)) mis = { err: "安全檢查失敗：資料中出現密碼欄位，已停止發佈" };
+    else try { mis = { pub: (await ghPut(MIS_REPO, "data.json", payload, "發佈：MIS 資料（不含密碼）")) ? "已發佈" : "沒有變更" }; }
+    catch (e) { mis = { err: e.message }; }
+  }
+  body.append(pubRow("MIS（不含密碼）", MIS_REPO, mis.err ? "失敗：" + mis.err : mis.pub, "—", el("td", { text: "—" }), !!mis.err));
+  const nFail = pubFailed.length + (mis.err ? 1 : 0);
+  $("#pubSub").textContent = (nFail ? "完成，但有 " + nFail + " 項失敗" : "全部完成") + "（" + nowStamp() + "）";
+  $("#btnPubRetry").hidden = !nFail;
+  $("#btnPubClose").disabled = false;
+  pubRunning = false;
+}
+$("#btnPub").onclick = () => publishAndSync();
+$("#btnPubRetry").onclick = () => publishAndSync(pubFailed.slice());
+$("#btnPubClose").onclick = () => $("#pubDlg").close();
 
 /* ---------- 匯出負責人帳號 Excel（只匯出，不寫回系統） ---------- */
 const EXCELJS_URL = "https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js";
@@ -1568,7 +1735,7 @@ $("#btnGhOff").onclick = () => {
   location.reload();
 };
 // GitHub 模式下，本機資料夾相關的功能都用不到
-if (GH) { $("#setFolder").hidden = true; $("#setCopy").hidden = true; $("#btnCopy").hidden = true; }
+if (GH) { $("#setFolder").hidden = true; $("#setCopy").hidden = true; $("#btnCopy").hidden = true; $("#btnPub").hidden = false; }
 
 $("#btnConn").onclick = () => store.action();
 $("#btnPick").onclick = () => store.pick();
