@@ -53,6 +53,11 @@ td.num{text-align:right}
 .warnip{color:var(--bad);font-weight:600}
 .warnt{color:var(--warn);font-weight:600}
 .maprow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0}
+/* 負責人、MIS：隱藏所有管理員功能，只顯示角色畫面與設定中的 GitHub 連線 */
+.role-limited .tabs, .role-limited main > :not(#roleBox), .role-limited #btnPub, .role-limited #btnCopy,
+.role-limited #setDlg section.set:not(:first-of-type) { display: none !important; }
+.role-limited #roleBox { display: block !important; }
+#roleBox h2 { margin: 0 0 6px; font-size: 18px; }
 .iplayout{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:14px;align-items:start}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(40px,1fr));gap:4px}
 .cell{border:1px solid var(--line);border-radius:5px;height:32px;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;position:relative}
@@ -111,6 +116,7 @@ section.set h3{margin:0 0 8px;font-size:14px}
 </header>
 
 <main>
+  <div id="roleBox" class="card" hidden></div>
   <div id="envAlert" class="alert" hidden></div>
   <div id="emptyAlert" class="alert" hidden>還沒有資料。請到 <b>設定</b> 確認網段與實體機，再到 VM 清單新增 VM。</div>
 
@@ -201,7 +207,7 @@ section.set h3{margin:0 0 8px;font-size:14px}
 <dialog id="setDlg"><div class="dlg">
   <h2>設定</h2>
   <section class="set">
-    <h3>GitHub 連線（管理員資料）</h3>
+    <h3>GitHub 連線</h3>
     <div class="connbox">
       <div id="ghText">尚未設定 GitHub 連線</div>
       <div class="fg" style="margin-top:8px">
@@ -214,7 +220,8 @@ section.set h3{margin:0 0 8px;font-size:14px}
       <div class="msg" id="ghMsg"></div>
     </div>
     <ul class="notes">
-      <li>連線後，資料直接讀寫 GitHub 私有 repo 中的 data.json，每次儲存都是一筆 commit。</li>
+      <li>連線時會依 token 的權限自動判斷身分（管理員、MIS、負責人），並顯示對應的畫面。</li>
+      <li>管理員的資料直接讀寫 GitHub 私有 repo 中的 data.json，每次儲存都是一筆 commit。</li>
       <li>token 只存在這台電腦的瀏覽器，不會寫入任何 repo；在公用電腦上用完請按「中斷連線」。</li>
       <li>沒有設定 GitHub 連線時，改用下方的本機資料夾。</li>
     </ul>
@@ -740,21 +747,30 @@ ui.accOwner = "*";
 try { const t = localStorage.getItem("eas-vm-ip:tab"); ui.tab = ["ip", "acc", "own"].includes(t) ? t : "vm"; } catch (e) {}
 const hostName = id => (S.hosts.find(h => h.id === id) || { n: "?" }).n;
 
-/* 資料來源：有設定 GitHub 連線（token 存在這台電腦的瀏覽器）就讀寫 GitHub repo，否則用本機資料夾 */
-const GH_KEY = "eas-vm-portal:github", GH_REPO = "eas-vm-admin";
+/* 資料來源：有設定 GitHub 連線（token 存在這台電腦的瀏覽器）就讀寫 GitHub repo，否則用本機資料夾。
+   連線時先向 GitHub 確認 token 能存取哪個 repo，再決定角色：管理員／MIS／負責人 */
+const GH_KEY = "eas-vm-portal:github", GH_REPO = "eas-vm-admin", MIS_REPO = "eas-vm-mis";
+const ROLE_TEXT = { admin: "管理員", mis: "MIS（唯讀）", owner: "負責人" };
 /** 從網址（帳號.github.io）取得 GitHub 帳號 */
 const ghHostOwner = () => location.hostname.endsWith(".github.io") ? location.hostname.split(".")[0] : "";
-/** 已儲存的連線設定：瀏覽器只存 token；帳號取自網址，repo 固定（之後改為依 token 判斷） */
+/** 已儲存的連線設定：token、辨識出的角色與 repo；帳號取自網址。舊設定沒有角色時，開啟網頁會重新辨識 */
 function ghConfig() {
   try {
     const c = JSON.parse(localStorage.getItem(GH_KEY) || "null"), owner = ghHostOwner();
-    return c && c.token && owner ? { owner, repo: GH_REPO, token: c.token } : null;
+    if (!c || !c.token || !owner) return null;
+    return { owner, token: c.token, role: ROLE_TEXT[c.role] ? c.role : "", repo: str(c.repo) };
   } catch (e) { return null; }
 }
 const GH = ghConfig();
 const storeOpts = { fileName: "data.json", defaults: () => ({ v: 1 }), clean, pretty: true, onChange: st => { S = st; A = analyze(S); render(); }, onStatus };
-const store = GH ? GitHubStore.create({ ...storeOpts, owner: GH.owner, repo: GH.repo, token: GH.token })
-                 : FolderStore.create({ ...storeOpts, appId: "eas-vm-ip-manager" });
+/** 非管理員（或還沒辨識角色）時使用：不讀取管理員資料，只顯示角色畫面 */
+function roleStore() {
+  return { init: initRole, action: openSettings, pick: openSettings, mutate: () => Promise.resolve(false), gh: true,
+    get state() { return S; }, get status() { return "role"; }, get dir() { return null; } };
+}
+const store = !GH ? FolderStore.create({ ...storeOpts, appId: "eas-vm-ip-manager" })
+  : GH.role === "admin" && GH.repo ? GitHubStore.create({ ...storeOpts, owner: GH.owner, repo: GH.repo, token: GH.token })
+  : roleStore();
 
 /** 修改資料；msg 為 GitHub 模式下的 commit 訊息（本機資料夾模式忽略） */
 function edit(fn, msg) {
@@ -1340,7 +1356,6 @@ $("#qOwn").oninput = renderOwn;
 $("#fOwnShow").onchange = renderOwn;
 
 /* ---------- 發佈並同步：管理員 → 各負責人、MIS；負責人的紀錄 → 管理員 ---------- */
-const MIS_REPO = "eas-vm-mis";
 /** 負責人分頁的「同步紀錄」欄 */
 function recSummary(oid) {
   const r = S.records[oid];
@@ -1704,38 +1719,68 @@ $("#btnSaveNet").onclick = () => {
 /* ---------- GitHub 連線設定 ---------- */
 function ghFill() {
   $("#ghToken").value = "";
-  $("#ghToken").placeholder = GH ? "已儲存在這台電腦（重新貼上可更換）" : "貼上管理員 token";
+  $("#ghToken").placeholder = GH ? "已儲存在這台電腦（重新貼上可更換）" : "貼上 token";
   $("#btnGhConn").textContent = GH ? "更新並重新連線" : "連線";
   $("#btnGhOff").hidden = !GH;
   if (!GH) $("#ghText").textContent = "尚未設定 GitHub 連線";
 }
-$("#btnGhConn").onclick = async () => {
-  const owner = ghHostOwner(), repo = GH_REPO;
-  const token = $("#ghToken").value.trim() || (GH ? GH.token : "");
-  const gm = $("#ghMsg");
-  const show = (m, bad) => { gm.textContent = m; gm.style.color = bad ? "var(--bad)" : "var(--mute)"; };
-  if (!owner) return show("請從網站網址開啟本頁後再連線", true);
-  if (!token) return show("請貼上 token", true);
-  show("檢查中…");
+const ghShow = (m, bad) => { const gm = $("#ghMsg"); gm.textContent = m; gm.style.color = bad ? "var(--bad)" : "var(--mute)"; };
+/** 確認 token 能存取哪個 repo，回傳 {role, repo}；都不能存取回傳 null；token 無效丟出錯誤
+    依序確認 eas-vm-admin → eas-vm-mis → eas-vm-owner-…，每個都實際讀得到才算數 */
+async function detectRole(owner, token) {
+  const H = { Authorization: "Bearer " + token, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" };
+  const get = path => fetch("https://api.github.com" + path, { headers: H, cache: "no-store" });
+  if ((await get("/user")).status === 401) throw new Error("token 無效或已過期");
+  // 列出 token 看得到的 repo，從中找出負責人 repo
+  let names = [];
   try {
-    const res = await fetch("https://api.github.com/repos/" + encodeURIComponent(owner) + "/" + encodeURIComponent(repo),
-      { headers: { Authorization: "Bearer " + token, Accept: "application/vnd.github+json" }, cache: "no-store" });
-    if (res.status === 401) return show("token 無效或已過期", true);
-    if (!res.ok) return show("這組 token 無法存取 " + repo + "（HTTP " + res.status + "），請確認 repo 名稱與 token 權限", true);
-  } catch (e) { return show("無法連線 GitHub（" + errText(e) + "）", true); }
-  // 瀏覽器只儲存 token；帳號每次從網址取得
-  try { localStorage.setItem(GH_KEY, JSON.stringify({ token })); }
-  catch (e) { return show("瀏覽器無法儲存 token（" + errText(e) + "）", true); }
-  show("連線成功，重新載入中…");
+    const res = await get("/user/repos?per_page=100");
+    if (res.ok) names = (await res.json()).filter(r => r.owner && r.owner.login.toLowerCase() === owner.toLowerCase()).map(r => r.name);
+  } catch (e) {}
+  const cands = [["admin", GH_REPO], ["mis", MIS_REPO], ...names.filter(n => n.startsWith(OWNER_REPO)).sort().map(n => ["owner", n])];
+  for (const [role, repo] of cands) {
+    if ((await get("/repos/" + encodeURIComponent(owner) + "/" + encodeURIComponent(repo))).ok) return { role, repo };
+  }
+  return null;
+}
+/** 辨識角色並儲存設定（只存 token、角色、repo；帳號每次從網址取得）；成功時重新載入 */
+async function connectToken(token) {
+  const owner = ghHostOwner();
+  if (!owner) return ghShow("請從網站網址開啟本頁後再連線", true);
+  ghShow("確認 token 的權限中…");
+  let det;
+  try { det = await detectRole(owner, token); }
+  catch (e) { return ghShow(e.message === "token 無效或已過期" ? e.message : "無法連線 GitHub（" + errText(e) + "）", true); }
+  if (!det) return ghShow("這組 token 沒有權限存取任何 VM 資料", true);
+  try { localStorage.setItem(GH_KEY, JSON.stringify({ token, role: det.role, repo: det.repo })); }
+  catch (e) { return ghShow("瀏覽器無法儲存 token（" + errText(e) + "）", true); }
+  ghShow("已辨識為「" + (det.role === "owner" ? "負責人（" + det.repo + "）" : ROLE_TEXT[det.role]) + "」，重新載入中…");
   location.reload();
+}
+$("#btnGhConn").onclick = () => {
+  const token = $("#ghToken").value.trim() || (GH ? GH.token : "");
+  if (!token) return ghShow("請貼上 token", true);
+  connectToken(token);
 };
+/** 非管理員角色開啟網頁：舊設定沒有角色就先辨識，否則顯示角色畫面 */
+async function initRole() {
+  if (!GH.role) { $("#pill").textContent = "確認 token 權限中…"; openSettings(); return connectToken(GH.token); }
+  document.body.classList.add("role-limited");
+  const who = GH.role === "owner" ? "負責人（" + GH.repo + "）" : ROLE_TEXT[GH.role];
+  $("#roleBox").replaceChildren(el("h2", { text: "已連線：" + who }),
+    el("p", { class: "mute", text: GH.role === "owner"
+      ? "負責人畫面還在建置中。完成後，這裡會顯示你負責的 VM 與帳號，並可填寫分享紀錄與自建帳號。"
+      : "MIS 畫面還在建置中。完成後，這裡會顯示所有 VM、IP 與帳號資料（不含密碼），只能查看。" }));
+  $("#pill").textContent = who; $("#pill").className = "pill ok";
+  $("#ghText").textContent = "已連線：" + who;
+}
 $("#btnGhOff").onclick = () => {
   if (!confirm("中斷 GitHub 連線？\n這台電腦會清除儲存的 token，改回使用本機資料夾。GitHub 上的資料不受影響。")) return;
   try { localStorage.removeItem(GH_KEY); } catch (e) {}
   location.reload();
 };
 // GitHub 模式下，本機資料夾相關的功能都用不到
-if (GH) { $("#setFolder").hidden = true; $("#setCopy").hidden = true; $("#btnCopy").hidden = true; $("#btnPub").hidden = false; }
+if (GH) { $("#setFolder").hidden = true; $("#setCopy").hidden = true; $("#btnCopy").hidden = true; $("#btnPub").hidden = GH.role !== "admin"; }
 
 $("#btnConn").onclick = () => store.action();
 $("#btnPick").onclick = () => store.pick();
