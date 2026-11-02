@@ -200,6 +200,27 @@ section.set h3{margin:0 0 8px;font-size:14px}
 <dialog id="setDlg"><div class="dlg">
   <h2>設定</h2>
   <section class="set">
+    <h3>GitHub 連線（管理員資料）</h3>
+    <div class="connbox">
+      <div id="ghText">尚未設定 GitHub 連線</div>
+      <div class="fg" style="margin-top:8px">
+        <label>GitHub 帳號<input id="ghOwner" autocomplete="off"></label>
+        <label>資料 repo<input id="ghRepo" autocomplete="off"></label>
+        <label class="full">token<input id="ghToken" type="password" autocomplete="off"></label>
+      </div>
+      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="pri" id="btnGhConn">連線</button>
+        <button id="btnGhOff" hidden>中斷連線</button>
+      </div>
+      <div class="msg" id="ghMsg"></div>
+    </div>
+    <ul class="notes">
+      <li>連線後，資料直接讀寫 GitHub 私有 repo 中的 data.json，每次儲存都是一筆 commit。</li>
+      <li>token 只存在這台電腦的瀏覽器，不會寫入任何 repo；在公用電腦上用完請按「中斷連線」。</li>
+      <li>沒有設定 GitHub 連線時，改用下方的本機資料夾。</li>
+    </ul>
+  </section>
+  <section class="set" id="setFolder">
     <h3>資料夾</h3>
     <div class="connbox">
       <div id="connText">尚未連接資料夾</div>
@@ -231,7 +252,7 @@ section.set h3{margin:0 0 8px;font-size:14px}
     <div id="hostRows"></div>
     <div class="foot" style="margin-top:4px"><button id="btnAddHost">＋ 新增實體機</button><button id="btnSaveHosts">儲存實體機</button></div>
   </section>
-  <section class="set">
+  <section class="set" id="setCopy">
     <h3>複製 data.json</h3>
     <div class="mute" style="font-size:12px">按上方「複製 data.json」會把目前資料夾的 data.json 複製到這裡指定的資料夾（例如 OneDrive 的 _vm-manager）。第一次按時會請你選擇目的地。兩邊內容相同就不複製；目的地的檔案比較新時，會先問你要不要覆蓋。</div>
     <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -424,6 +445,102 @@ section.set h3{margin:0 0 8px;font-size:14px}
 </script>
 
 <script>
+/* GitHubStore：透過 GitHub API 讀寫私有 repo 中的 data.json，介面與 FolderStore 相同
+   - 讀取用 ETag 條件請求輪詢，沒有變更時回應 304，不佔 GitHub 的流量限制
+   - 每次儲存都是一筆 commit；兩邊同時儲存造成衝突（409）時，重新讀取最新資料後再套用一次 */
+(function (global) {
+  "use strict";
+  function create(opt) {
+    const owner = opt.owner, repo = opt.repo, token = opt.token, path = opt.fileName || "data.json";
+    const clean = opt.clean, onChange = opt.onChange || function () {}, onStatus = opt.onStatus || function () {};
+    const pollMs = opt.pollMs == null ? 10000 : opt.pollMs, pretty = !!opt.pretty;
+    const api = "https://api.github.com/repos/" + encodeURIComponent(owner) + "/" + encodeURIComponent(repo);
+    let state = clean(opt.defaults ? opt.defaults() : {});
+    let sha = null, etag = null, connected = false, lastSaved = null, queue = Promise.resolve(), timer = null;
+    const hdr = extra => Object.assign({ Authorization: "Bearer " + token, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" }, extra || {});
+    const status = () => connected ? "ready" : "none";
+    const emit = (msg, err) => onStatus(status(), { gh: true, dir: owner + "/" + repo, file: path, lastSaved, message: msg || "", error: err || null });
+    function httpErr(res, what) {
+      const e = new Error(what + "（HTTP " + res.status + "）");
+      e.name = { 401: "Unauthorized", 403: "Forbidden", 404: "NotFound", 409: "Conflict", 422: "Unprocessable" }[res.status] || "HttpError";
+      e.status = res.status;
+      return e;
+    }
+    function b64decode(s) { const bin = atob(s.replace(/\s/g, "")), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return new TextDecoder().decode(u); }
+    function b64encode(text) { const u = new TextEncoder().encode(text); let s = ""; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); }
+    /** 讀取最新 data.json；有變更時更新 state 並回傳 true。檔案不存在時視為空資料，第一次儲存會建立 */
+    async function readFile() {
+      const res = await fetch(api + "/contents/" + path, { headers: hdr(etag ? { "If-None-Match": etag } : null), cache: "no-store" });
+      if (res.status === 304) return false;
+      if (res.status === 404) { sha = null; etag = null; return false; }
+      if (!res.ok) throw httpErr(res, "讀取資料失敗");
+      etag = res.headers.get("ETag");
+      const j = await res.json();
+      if (j.sha === sha) return false;
+      let data;
+      try { data = JSON.parse(b64decode(j.content)); } catch (e) { e.message = "data.json 格式有誤：" + e.message; throw e; }
+      sha = j.sha; state = clean(data);
+      return true;
+    }
+    async function writeFile(msg) {
+      const body = { message: msg || "更新資料（網頁）", content: b64encode(JSON.stringify(state, null, pretty ? 2 : 0) + "\n") };
+      if (sha) body.sha = sha;
+      const res = await fetch(api + "/contents/" + path, { method: "PUT", headers: hdr({ "Content-Type": "application/json" }), body: JSON.stringify(body) });
+      if (!res.ok) throw httpErr(res, "儲存失敗");
+      sha = (await res.json()).content.sha; etag = null; lastSaved = new Date();
+      emit();
+    }
+    /** 寫入失敗時，重新載入 GitHub 上的版本，避免畫面停在沒有存成功的內容 */
+    async function reload() { sha = null; etag = null; try { await readFile(); } catch (e) {} onChange(state); }
+    async function init() {
+      onChange(state);
+      emit("連線中…");
+      try {
+        const res = await fetch(api, { headers: hdr(), cache: "no-store" });
+        if (res.status === 401) throw httpErr(res, "token 無效或已過期");
+        if (res.status === 403 || res.status === 404) throw httpErr(res, "這組 token 無法存取 " + owner + "/" + repo);
+        if (!res.ok) throw httpErr(res, "無法連線 GitHub");
+        await readFile();
+        connected = true; onChange(state); emit("已連線 GitHub"); startPoll();
+      } catch (e) { connected = false; emit("無法連線 GitHub", e); }
+      return status();
+    }
+    /** 套用修改並寫回 GitHub；成功回傳 true，失敗回傳 false（畫面會回到 GitHub 上的版本） */
+    function mutate(fn, msg) {
+      queue = queue.then(async () => {
+        if (!connected) { emit("尚未連線 GitHub"); return false; }
+        for (let tries = 1; ; tries++) {
+          try {
+            await readFile();
+            fn(state); state = clean(state); onChange(state);
+            await writeFile(msg);
+            return true;
+          } catch (e) {
+            if (e && (e.status === 409 || e.status === 422) && tries < 3) { etag = null; continue; }   // 別人剛好也存了：讀最新再套用一次
+            emit("沒有存到 GitHub", e);
+            await reload();
+            return false;
+          }
+        }
+      });
+      return queue;
+    }
+    function startPoll() {
+      if (timer || !pollMs) return;
+      const tick = () => {
+        if (!connected || document.hidden) return;
+        queue = queue.then(() => readFile().then(c => { if (c) onChange(state); }).catch(e => emit("讀取 GitHub 失敗", e)));
+      };
+      timer = setInterval(tick, pollMs);
+      document.addEventListener("visibilitychange", tick);
+    }
+    return { init, action: init, pick: init, mutate, gh: true, get state() { return state; }, get status() { return status(); }, get dir() { return null; } };
+  }
+  global.GitHubStore = { create };
+})(window);
+</script>
+
+<script>
 "use strict";
 /* ---------- 工具 ---------- */
 const $ = s => document.querySelector(s);
@@ -598,26 +715,45 @@ ui.accOwner = "*";
 try { const t = localStorage.getItem("eas-vm-ip:tab"); ui.tab = ["ip", "acc", "own"].includes(t) ? t : "vm"; } catch (e) {}
 const hostName = id => (S.hosts.find(h => h.id === id) || { n: "?" }).n;
 
-const store = FolderStore.create({
-  fileName: "data.json", appId: "eas-vm-ip-manager", defaults: () => ({ v: 1 }), clean, pretty: true,
-  onChange: st => { S = st; A = analyze(S); render(); },
-  onStatus
-});
+/* 資料來源：有設定 GitHub 連線（token 存在這台電腦的瀏覽器）就讀寫 GitHub repo，否則用本機資料夾 */
+const GH_KEY = "eas-vm-portal:github";
+function ghConfig() {
+  try { const c = JSON.parse(localStorage.getItem(GH_KEY) || "null"); return c && c.owner && c.repo && c.token ? c : null; }
+  catch (e) { return null; }
+}
+const GH = ghConfig();
+const storeOpts = { fileName: "data.json", defaults: () => ({ v: 1 }), clean, pretty: true, onChange: st => { S = st; A = analyze(S); render(); }, onStatus };
+const store = GH ? GitHubStore.create({ ...storeOpts, owner: GH.owner, repo: GH.repo, token: GH.token })
+                 : FolderStore.create({ ...storeOpts, appId: "eas-vm-ip-manager" });
 
 function edit(fn) {
   const st = store.status;
-  if (st !== "ready" && st !== "readonly") { openSettings(); toast("請先在設定中連接資料夾", "bad"); return Promise.resolve(false); }
-  return store.mutate(fn).then(() => true);
+  if (st !== "ready" && st !== "readonly") { openSettings(); toast(GH ? "尚未連線 GitHub，請到設定檢查" : "請先在設定中連接資料夾", "bad"); return Promise.resolve(false); }
+  // GitHub 寫入失敗時 mutate 會回傳 false，呼叫端就不會顯示「已儲存」
+  return store.mutate(fn).then(r => r !== false);
 }
 
 /* ---------- 連線狀態 ---------- */
 let prevSt = "";
 function onStatus(st, info) {
   const btn = $("#btnConn"), pill = $("#pill");
+  const t = info.lastSaved ? " · 已存檔 " + pad(info.lastSaved.getHours()) + ":" + pad(info.lastSaved.getMinutes()) : "";
+  if (info.gh) {
+    $("#ghText").textContent = st === "ready" ? "已連線：" + info.dir + " / " + info.file + t : "未連線：" + info.dir;
+    const gm = $("#ghMsg");
+    gm.textContent = info.message + (info.error ? "（" + info.error.name + "：" + info.error.message + "）" : "");
+    gm.style.color = info.error ? "var(--bad)" : "var(--mute)";
+    pill.textContent = st === "ready" ? "☁ " + info.dir.split("/")[1] + t : "GitHub 未連線";
+    pill.className = "pill " + (st === "ready" ? "ok" : "bad");
+    if (info.error && st === "ready") toast(info.message + "：" + info.error.message, "bad");
+    if (st === "ready" && prevSt && prevSt !== "ready" && $("#setDlg").open) $("#setDlg").close();
+    if (st !== "ready" && info.message !== "連線中…" && !$("#setDlg").open) openSettings();
+    prevSt = st;
+    return;
+  }
   btn.textContent = { none: "選擇資料夾", resume: "繼續使用", readonly: "允許存檔", ready: "換資料夾" }[st] || "選擇資料夾";
   btn.disabled = st === "frame" || st === "unsupported";
   $("#btnPick").hidden = !(st === "resume" || st === "readonly");
-  const t = info.lastSaved ? " · 已存檔 " + pad(info.lastSaved.getHours()) + ":" + pad(info.lastSaved.getMinutes()) : "";
   const map = {
     ready: "已連接：" + info.dir + " / " + info.file + t,
     readonly: "已讀取 " + info.dir + "，尚未允許存檔",
@@ -644,6 +780,7 @@ function openSettings() {
   const s = S.set;
   $("#sPre").value = s.pre; $("#sFrom").value = s.from; $("#sTo").value = s.to; $("#sCool").value = s.cool;
   renderHostRows(S.hosts);
+  ghFill();
   if (!$("#setDlg").open) $("#setDlg").showModal();
 }
 
@@ -1393,6 +1530,45 @@ $("#btnSaveNet").onclick = () => {
   const set = { pre, from: $("#sFrom").value, to: $("#sTo").value, cool: $("#sCool").value };
   edit(st => { Object.assign(st.set, set); }).then(ok => { if (ok) toast("已儲存網段"); });
 };
+/* ---------- GitHub 連線設定 ---------- */
+function ghFill() {
+  // 預設帳號取自網址（帳號.github.io），預設 repo 為 eas-vm-admin
+  const host = location.hostname.endsWith(".github.io") ? location.hostname.split(".")[0] : "";
+  $("#ghOwner").value = GH ? GH.owner : host;
+  $("#ghRepo").value = GH ? GH.repo : "eas-vm-admin";
+  $("#ghToken").value = "";
+  $("#ghToken").placeholder = GH ? "已儲存在這台電腦（重新貼上可更換）" : "貼上管理員 token";
+  $("#btnGhConn").textContent = GH ? "更新並重新連線" : "連線";
+  $("#btnGhOff").hidden = !GH;
+  if (!GH) $("#ghText").textContent = "尚未設定 GitHub 連線";
+}
+$("#btnGhConn").onclick = async () => {
+  const owner = $("#ghOwner").value.trim(), repo = $("#ghRepo").value.trim();
+  const token = $("#ghToken").value.trim() || (GH ? GH.token : "");
+  const gm = $("#ghMsg");
+  const show = (m, bad) => { gm.textContent = m; gm.style.color = bad ? "var(--bad)" : "var(--mute)"; };
+  if (!owner || !repo) return show("請填寫 GitHub 帳號與資料 repo", true);
+  if (!token) return show("請貼上 token", true);
+  show("檢查中…");
+  try {
+    const res = await fetch("https://api.github.com/repos/" + encodeURIComponent(owner) + "/" + encodeURIComponent(repo),
+      { headers: { Authorization: "Bearer " + token, Accept: "application/vnd.github+json" }, cache: "no-store" });
+    if (res.status === 401) return show("token 無效或已過期", true);
+    if (!res.ok) return show("這組 token 無法存取 " + owner + "/" + repo + "（HTTP " + res.status + "），請確認 repo 名稱與 token 權限", true);
+  } catch (e) { return show("無法連線 GitHub（" + errText(e) + "）", true); }
+  try { localStorage.setItem(GH_KEY, JSON.stringify({ owner, repo, token })); }
+  catch (e) { return show("瀏覽器無法儲存 token（" + errText(e) + "）", true); }
+  show("連線成功，重新載入中…");
+  location.reload();
+};
+$("#btnGhOff").onclick = () => {
+  if (!confirm("中斷 GitHub 連線？\n這台電腦會清除儲存的 token，改回使用本機資料夾。GitHub 上的資料不受影響。")) return;
+  try { localStorage.removeItem(GH_KEY); } catch (e) {}
+  location.reload();
+};
+// GitHub 模式下，本機資料夾相關的功能都用不到
+if (GH) { $("#setFolder").hidden = true; $("#setCopy").hidden = true; $("#btnCopy").hidden = true; }
+
 $("#btnConn").onclick = () => store.action();
 $("#btnPick").onclick = () => store.pick();
 $("#btnSet").onclick = openSettings;
