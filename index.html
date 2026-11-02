@@ -206,14 +206,6 @@ section.set h3{margin:0 0 8px;font-size:14px}
       <div class="fg" style="margin-top:8px">
         <label class="full">token<input id="ghToken" type="password" autocomplete="off"></label>
       </div>
-      <details id="ghAdv" style="margin-top:8px">
-        <summary class="mute" style="cursor:pointer;font-size:13px">進階設定</summary>
-        <div class="fg" style="margin-top:8px">
-          <label>GitHub 帳號<input id="ghOwner" autocomplete="off" placeholder="自動（取自網址）"></label>
-          <label>資料 repo<input id="ghRepo" autocomplete="off" placeholder="eas-vm-admin"></label>
-        </div>
-        <div class="mute" style="font-size:12px;margin-top:4px">留空就使用預設值；只有 repo 改名或搬到其他帳號時才需要填。</div>
-      </details>
       <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
         <button class="pri" id="btnGhConn">連線</button>
         <button id="btnGhOff" hidden>中斷連線</button>
@@ -726,13 +718,11 @@ const hostName = id => (S.hosts.find(h => h.id === id) || { n: "?" }).n;
 const GH_KEY = "eas-vm-portal:github", GH_REPO = "eas-vm-admin";
 /** 從網址（帳號.github.io）取得 GitHub 帳號 */
 const ghHostOwner = () => location.hostname.endsWith(".github.io") ? location.hostname.split(".")[0] : "";
-/** 已儲存的連線設定；帳號沒填時用網址的帳號（ownerSet 記錄使用者是否自己填過） */
+/** 已儲存的連線設定：瀏覽器只存 token；帳號取自網址，repo 固定（之後改為依 token 判斷） */
 function ghConfig() {
   try {
-    const c = JSON.parse(localStorage.getItem(GH_KEY) || "null");
-    if (!c || !c.token) return null;
-    const owner = c.owner || ghHostOwner();
-    return owner ? { owner, ownerSet: c.owner || "", repo: c.repo || GH_REPO, token: c.token } : null;
+    const c = JSON.parse(localStorage.getItem(GH_KEY) || "null"), owner = ghHostOwner();
+    return c && c.token && owner ? { owner, repo: GH_REPO, token: c.token } : null;
   } catch (e) { return null; }
 }
 const GH = ghConfig();
@@ -1546,10 +1536,6 @@ $("#btnSaveNet").onclick = () => {
 };
 /* ---------- GitHub 連線設定 ---------- */
 function ghFill() {
-  // 進階欄位留空＝使用預設值；欄位只顯示使用者自己填過的值，不把帳號名稱顯示在畫面上
-  $("#ghOwner").value = GH ? GH.ownerSet || "" : "";
-  $("#ghRepo").value = GH && GH.repo !== GH_REPO ? GH.repo : "";
-  $("#ghAdv").open = !!($("#ghOwner").value || $("#ghRepo").value);
   $("#ghToken").value = "";
   $("#ghToken").placeholder = GH ? "已儲存在這台電腦（重新貼上可更換）" : "貼上管理員 token";
   $("#btnGhConn").textContent = GH ? "更新並重新連線" : "連線";
@@ -1557,12 +1543,11 @@ function ghFill() {
   if (!GH) $("#ghText").textContent = "尚未設定 GitHub 連線";
 }
 $("#btnGhConn").onclick = async () => {
-  const ownerSet = $("#ghOwner").value.trim(), owner = ownerSet || ghHostOwner();
-  const repo = $("#ghRepo").value.trim() || GH_REPO;
+  const owner = ghHostOwner(), repo = GH_REPO;
   const token = $("#ghToken").value.trim() || (GH ? GH.token : "");
   const gm = $("#ghMsg");
   const show = (m, bad) => { gm.textContent = m; gm.style.color = bad ? "var(--bad)" : "var(--mute)"; };
-  if (!owner) { $("#ghAdv").open = true; return show("無法從網址判斷 GitHub 帳號，請在「進階設定」填寫", true); }
+  if (!owner) return show("請從網站網址開啟本頁後再連線", true);
   if (!token) return show("請貼上 token", true);
   show("檢查中…");
   try {
@@ -1571,8 +1556,8 @@ $("#btnGhConn").onclick = async () => {
     if (res.status === 401) return show("token 無效或已過期", true);
     if (!res.ok) return show("這組 token 無法存取 " + repo + "（HTTP " + res.status + "），請確認 repo 名稱與 token 權限", true);
   } catch (e) { return show("無法連線 GitHub（" + errText(e) + "）", true); }
-  // 帳號沒有特別填寫時不儲存，每次都從網址取得
-  try { localStorage.setItem(GH_KEY, JSON.stringify({ owner: ownerSet, repo, token })); }
+  // 瀏覽器只儲存 token；帳號每次從網址取得
+  try { localStorage.setItem(GH_KEY, JSON.stringify({ token })); }
   catch (e) { return show("瀏覽器無法儲存 token（" + errText(e) + "）", true); }
   show("連線成功，重新載入中…");
   location.reload();
