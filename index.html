@@ -1656,7 +1656,7 @@ async function buildOwnerWorkbook(ow, rows) {
       : "尚未同步過負責人在網頁上填寫的紀錄。"],
     [""],
     ["一、本檔案用途", { bold: true }],
-    ["　　本檔案只記錄上述 VM 的使用狀況。帳號密碼列於工作表「帳號清單」，請妥善保管，勿轉寄或存放於公開位置；首次登入後請立即變更密碼。"],
+    ["　　本檔案只記錄上述 VM 的使用狀況，不含密碼；帳號密碼請登入 VM 管理網站查看。"],
     ["二、需要您填寫的工作表（黃色欄位）", { bold: true }],
     ["　　「分享紀錄」：若將本檔案的帳號密碼提供給他人使用，請逐筆記錄分享對象與日期；收回時填寫收回日期。"],
     ["　　「自建帳號」：若登入此 VM 後自行建立其他帳號，請逐筆記錄；帳號停用時填寫停用日期。"],
@@ -1669,10 +1669,10 @@ async function buildOwnerWorkbook(ow, rows) {
     ["　　稽核時請提供本檔案的最新版本。「帳號清單」工作表已鎖定，請勿修改。"]
   ].forEach(([text, font]) => { const c = guide.addRow([text]).getCell(1); c.alignment = { wrapText: true, vertical: "top" }; if (font) c.font = font; });
 
-  // 2. 帳號清單（系統帶出，鎖定）
-  const list = sheet("帳號清單", [{ h: "VM 名稱", w: 34 }, { h: "IP", w: 16 }, { h: "實體機", w: 10 }, { h: "VM ID", w: 12 }, { h: "帳號", w: 18 }, { h: "密碼", w: 22 }, { h: "負責人", w: 12 }, { h: "匯出日期", w: 12 }], 0);
+  // 2. 帳號清單（系統帶出，鎖定）；密碼一律不匯出，改由負責人登入網站查看
+  const list = sheet("帳號清單", [{ h: "VM 名稱", w: 34 }, { h: "IP", w: 16 }, { h: "實體機", w: 10 }, { h: "VM ID", w: 12 }, { h: "帳號", w: 18 }, { h: "負責人", w: 12 }, { h: "匯出日期", w: 12 }], 0);
   rows.forEach(({ v, a }) => {
-    const row = list.addRow([v.n, v.ip || "", hostName(v.h), v.q || "", a.u, a.p || "", who, date]);
+    const row = list.addRow([v.n, v.ip || "", hostName(v.h), v.q || "", a.u, who, date]);
     row.eachCell({ includeEmpty: true }, c => { c.border = border; c.numFmt = "@"; });
   });
   await list.protect("", { selectLockedCells: true, selectUnlockedCells: true, formatColumns: true });
