@@ -1022,6 +1022,8 @@ function render() {
   const nOwn = RO ? 0 : ownerAlerts();
   $("#ownBadge").replaceChildren(nOwn ? el("span", { class: "badge", text: nOwn }) : "");
 }
+/** VM 的排序：實體機 → IP（數字順序，沒有 IP 的排在該實體機最後）→ 名稱；VM 清單與帳號分頁共用 */
+const vmOrder = (a, b) => hostName(a.h).localeCompare(hostName(b.h)) || (a.ip && b.ip ? ipNum(a.ip) - ipNum(b.ip) : (a.ip ? -1 : b.ip ? 1 : 0)) || a.n.localeCompare(b.n);
 const vmSt = v => v.off ? ["已下架 " + v.off, "s-released"] : v.on ? ["上線", "s-used"] : ["關機", "s-stopped"];
 
 function renderVm() {
@@ -1047,7 +1049,7 @@ function renderVm() {
     if (show === "retired" && !v.off) return false;
     if (q && ![v.n, v.ip, v.q, v.tag, v.note, hostName(v.h), ...(v.acc || []).flatMap(a => [a.u, ownerName(a)])].some(x => x && x.toLowerCase().includes(q))) return false;
     return true;
-  }).sort((a, b) => hostName(a.h).localeCompare(hostName(b.h)) || (a.ip && b.ip ? ipNum(a.ip) - ipNum(b.ip) : (a.ip ? -1 : b.ip ? 1 : 0)) || a.n.localeCompare(b.n));
+  }).sort(vmOrder);
   $("#vmCount").textContent = list.length + " 台";
   const body = $("#vmBody");
   if (!list.length) { body.replaceChildren(el("tr", null, el("td", { colspan: 12, class: "empty", text: S.vms.length ? "沒有符合的 VM" : "尚無資料" }))); return; }
@@ -1361,7 +1363,7 @@ function renderAcc() {
   const sortKey = a => ownerKey(a) ? ownerName(a) : "￿";
   const list = rows.filter(({ v, a }) => (ui.accOwner === "*" || ownerKey(a) === ui.accOwner) &&
     (!q || [a.u, ownerName(a), v.n, v.ip, hostName(v.h)].some(x => x && x.toLowerCase().includes(q))))
-    .sort((x, y) => sortKey(x.a).localeCompare(sortKey(y.a)) || x.v.n.localeCompare(y.v.n) || x.a.u.localeCompare(y.a.u));
+    .sort((x, y) => sortKey(x.a).localeCompare(sortKey(y.a)) || vmOrder(x.v, y.v) || x.a.u.localeCompare(y.a.u));   // 負責人 → 和 VM 清單相同 → 帳號
   $("#accCount").textContent = list.length + " 個帳號 · " + new Set(list.map(r => r.v.id)).size + " 台 VM";
   $("#accBody").replaceChildren(...(list.length ? list.map(({ v, a }) => {
     const st = vmSt(v);
@@ -1641,7 +1643,7 @@ function applyChanges(st, o, changes) {
     const label = hit ? hit.v.n + " / " + hit.a.u : (c.vmn || "?") + " / " + (c.u0 || "?");
     const why = !hit ? "帳號已不存在" : hit.a.oid !== o.id ? "帳號已改給其他負責人" : hit.v.off ? "VM 已下架" : "";
     if (why) return { label, why };
-    const r = { label, uTo: hit.a.u !== c.u ? c.u : "", pw: (hit.a.p || "") !== (c.p || ""), dup: hit.v.acc.some(x => x !== hit.a && x.u === c.u) };
+    const r = { label, uTo: hit.a.u !== c.u ? c.u : "", pw: (hit.a.p || "") !== (c.p || ""), pwEmpty: !c.p, dup: hit.v.acc.some(x => x !== hit.a && x.u === c.u) };
     hit.a.u = c.u; hit.a.p = c.p || "";
     return r;
   });
@@ -1702,7 +1704,7 @@ async function publishAndSync(only) {
     if (r.err) pubFailed.push(r.o.id);
     body.append(pubRow(r.o.n, r.repo, r.err ? "失敗：" + r.err : r.pub, chCell(r.res), r.rec ? r.sync : "—", diffCell(r.diff), !!r.err));
     (r.res || []).forEach(x => $("#pubCh").append(el("li", null, r.o.n + "：" + x.label + " → ",
-      x.why ? el("span", { class: "warnt", text: x.why + "，未套用" }) : [x.uTo && "帳號改為 " + x.uTo, x.pw && "密碼已更新"].filter(Boolean).join("、") || "內容相同",
+      x.why ? el("span", { class: "warnt", text: x.why + "，未套用" }) : [x.uTo && "帳號改為 " + x.uTo, x.pw && (x.pwEmpty ? "密碼已清空" : "密碼已更新")].filter(Boolean).join("、") || "內容相同",
       x.dup ? el("span", { class: "warnip", text: "（⚠ 和同一台 VM 的其他帳號同名）" }) : "")));
   }
   $("#pubChBox").hidden = !$("#pubCh").children.length;
@@ -2157,7 +2159,7 @@ function openPw(accId) {
   const ch = OC.changes.find(c => c.acc === accId);
   pwAcc = x;
   $("#pwTarget").textContent = x.v.name + " / " + x.a.u;
-  pwForm.u.value = ch ? ch.u : x.a.u; pwForm.p.value = ch ? ch.p : x.a.p;
+  pwForm.u.value = ch ? ch.u : x.a.u; pwForm.p.value = (ch ? ch.p : x.a.p) || "";   // 空白密碼在 changes.json 中會省略欄位
   pwForm.p.type = "text"; $("#btnPwShow").textContent = "隱藏";   // 預設顯示密碼，方便確認貼上的內容
   $("#pwDlg").showModal();
 }
@@ -2168,11 +2170,11 @@ pwForm.addEventListener("submit", e => {
   e.preventDefault();
   const { v, a } = pwAcc, u = pwForm.u.value.trim(), p = pwForm.p.value;
   if (!u) return toast("請輸入帳號", "bad");
-  if (!p) return toast("請輸入密碼", "bad");
+  // 密碼允許空白（例如帳號不用密碼登入，或還不知道密碼只先回填帳號名稱）
   const ch = OC.changes.find(c => c.acc === a.id);
   // 和管理員發佈的值相同＝沒有要變更（若之前有送出待同步的變更，等於取消）
   const same = u === a.u && p === a.p;
-  if ((same && !ch) || (ch && ch.u === u && ch.p === p)) { $("#pwDlg").close(); return toast("沒有變更"); }
+  if ((same && !ch) || (ch && ch.u === u && (ch.p || "") === p)) { $("#pwDlg").close(); return toast("沒有變更"); }
   chEdit(st => {
     st.changes = st.changes.filter(c => c.acc !== a.id);   // 同一個帳號只保留最新一筆
     if (!same) st.changes.push({ id: uid(), acc: a.id, u, p, vmn: v.name, u0: a.u, at: nowStamp() });
