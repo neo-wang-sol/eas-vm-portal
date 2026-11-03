@@ -1719,20 +1719,25 @@ $("#btnPubClose").onclick = () => $("#pubDlg").close();
 /* ---------- 匯出帳號管理紀錄 Excel（只匯出，不寫回系統；不含密碼） ----------
    稽核「有沒有做帳號管理」時提出的依據：各負責人的帳號、分享給誰、自建了哪些帳號 */
 const EXCELJS_URL = "https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js";
+/* SRI 檢查碼：CDN 上的檔案被竄改時瀏覽器會拒絕執行，避免惡意程式在本頁讀到 token。
+   2026-11-03 已確認 CDN 檔案與 npm 官方套件 exceljs-4.4.0.tgz 內容相同；更換版本時要重新計算 */
+const EXCELJS_SRI = "sha384-Pqp51FUN2/qzfxZxBCtF0stpc9ONI6MYZpVqmo8m20SoaQCzf+arZvACkLkirlPz";
 const PERM = ["管理員", "一般", "唯讀"];
 const libP = {};
-/** 只在匯出時才從 CDN 載入函式庫，其他功能離線也能用 */
-function loadLib(url, name) {
+/** 只在匯出時才從 CDN 載入函式庫，其他功能離線也能用；integrity 為 SRI 檢查碼 */
+function loadLib(url, name, integrity) {
   if (window[name]) return Promise.resolve(window[name]);
   return libP[name] || (libP[name] = new Promise((res, rej) => {
     const s = document.createElement("script");
     s.src = url;
+    s.integrity = integrity; s.crossOrigin = "anonymous";
     s.onload = () => window[name] ? res(window[name]) : rej(new Error("Excel 元件載入失敗"));
-    s.onerror = () => { delete libP[name]; s.remove(); rej(new Error("無法載入 Excel 元件，請確認電腦可以連網")); };
+    // 連不上 CDN，或檔案內容與檢查碼不符（瀏覽器拒絕執行）都會走到這裡
+    s.onerror = () => { delete libP[name]; s.remove(); rej(new Error("無法載入 Excel 元件，請確認電腦可以連網；若持續發生，可能是元件檔案被竄改，請通知管理員")); };
     document.head.append(s);
   }));
 }
-const loadExcelJS = () => loadLib(EXCELJS_URL, "ExcelJS");
+const loadExcelJS = () => loadLib(EXCELJS_URL, "ExcelJS", EXCELJS_SRI);
 const DELETED_OWNER = "（已刪除的負責人）";
 /** 稽核用的負責人名稱：清單中的負責人、尚未對應的舊名稱，空白＝VM 管理人 */
 const auditOwner = a => a.oid ? (ownerById(a.oid) || { n: DELETED_OWNER }).n : a.o || ADMIN;
