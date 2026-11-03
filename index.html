@@ -88,6 +88,10 @@ dialog{border:0;border-radius:12px;padding:0;width:min(720px,94vw);box-shadow:0 
 dialog::backdrop{background:rgba(20,25,35,.4)}
 dialog form,dialog .dlg{padding:18px 20px}
 dialog .dlg form{padding:0}
+/* 設定視窗以一般視窗開啟（不用 showModal）：強制回應視窗會讓視窗外的元素無法點擊，
+   密碼管理員（例如 Bitdefender SecurePass）插入網頁的自動填入選單就會失效。外觀用遮罩模擬 */
+#setDlg{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);margin:0;z-index:40;max-height:90vh;overflow:auto}
+#setMask{position:fixed;inset:0;background:rgba(20,25,35,.4);z-index:39}
 dialog h2{margin:0 0 12px;font-size:17px}
 .dlghead{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
 .fg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px}
@@ -261,6 +265,7 @@ section.set h3{margin:0 0 8px;font-size:14px}
 </main>
 
 <!-- 設定 -->
+<div id="setMask" hidden></div>
 <dialog id="setDlg"><div class="dlg">
   <h2>設定</h2>
   <section class="set">
@@ -992,7 +997,7 @@ function openSettings() {
   $("#sPre").value = s.pre; $("#sFrom").value = s.from; $("#sTo").value = s.to; $("#sCool").value = s.cool;
   renderHostRows(S.hosts);
   ghFill();
-  if (!$("#setDlg").open) $("#setDlg").showModal();
+  if (!$("#setDlg").open) { $("#setDlg").show(); $("#setMask").hidden = false; }
 }
 
 /* ---------- 畫面 ---------- */
@@ -2243,6 +2248,9 @@ $("#btnConn").onclick = () => store.action();
 $("#btnPick").onclick = () => store.pick();
 $("#btnSet").onclick = openSettings;
 $("#btnSetClose").onclick = () => $("#setDlg").close();
+$("#setDlg").addEventListener("close", () => { $("#setMask").hidden = true; });
+// 一般視窗不會自動支援 Esc 關閉，補上（和其他視窗一致）
+document.addEventListener("keydown", e => { if (e.key === "Escape" && $("#setDlg").open && !document.querySelector("dialog:modal")) $("#setDlg").close(); });
 
 /* ---------- 複製 data.json 到其他資料夾 ---------- */
 const COPY_DB = "eas-vm-ip-manager:copy";
