@@ -54,10 +54,12 @@ td.num{text-align:right}
 .warnt{color:var(--warn);font-weight:600}
 .maprow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0}
 /* 負責人、MIS：隱藏所有管理員功能，只顯示角色畫面與設定中的 GitHub 連線 */
-.role-limited .tabs, .role-limited main > :not(#roleBox), .role-limited #btnPub, .role-limited #btnCopy,
+.role-limited .tabs, .role-limited main > :not(#roleBox):not(#ownerView), .role-limited #btnPub, .role-limited #btnCopy,
 .role-limited #setDlg section.set:not(:first-of-type) { display: none !important; }
-.role-limited #roleBox { display: block !important; }
-#roleBox h2 { margin: 0 0 6px; font-size: 18px; }
+#roleBox h2, #ovHead h2 { margin: 0 0 6px; font-size: 18px; }
+.ovsec { margin-top: 22px; margin-bottom: 6px; }
+.ovsec h3 { margin: 0; font-size: 15px; }
+.ovhint { font-size: 12px; margin: 0 0 8px; }
 .iplayout{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:14px;align-items:start}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(40px,1fr));gap:4px}
 .cell{border:1px solid var(--line);border-radius:5px;height:32px;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;position:relative}
@@ -117,6 +119,30 @@ section.set h3{margin:0 0 8px;font-size:14px}
 
 <main>
   <div id="roleBox" class="card" hidden></div>
+  <!-- 負責人畫面 -->
+  <div id="ownerView" hidden>
+    <div class="card" id="ovHead"><h2 id="ovTitle">負責人</h2><div class="mute" id="ovSub"></div></div>
+    <div id="ovAlert" class="alert" style="margin-top:12px" hidden></div>
+    <div class="bar ovsec"><h3>我的 VM 與帳號</h3><span class="mute" id="ovCount"></span><div class="grow"></div>
+      <label style="display:flex;align-items:center;gap:4px"><input type="checkbox" id="ovShowPw"> 顯示密碼</label></div>
+    <div class="mute ovhint">由管理員發佈，只能查看。密碼不可自行修改，需要變更請聯絡管理員。</div>
+    <div class="tblwrap"><table>
+      <thead><tr><th>VM</th><th>IP</th><th>實體機</th><th>VM ID</th><th>帳號</th><th>密碼</th></tr></thead>
+      <tbody id="ovVmBody"></tbody>
+    </table></div>
+    <div class="bar ovsec"><h3>分享紀錄</h3><span class="mute" id="ovShareCount"></span><div class="grow"></div><button class="pri" id="btnAddShare">＋ 新增分享紀錄</button></div>
+    <div class="mute ovhint">把帳號密碼提供給其他人使用時要登記；收回後填上收回日期。</div>
+    <div class="tblwrap"><table>
+      <thead><tr><th>帳號</th><th>分享對象</th><th>分享日期</th><th>原因</th><th>狀態</th><th>備註</th><th>最後修改</th><th></th></tr></thead>
+      <tbody id="ovShareBody"></tbody>
+    </table></div>
+    <div class="bar ovsec"><h3>自建帳號</h3><span class="mute" id="ovCrCount"></span><div class="grow"></div><button class="pri" id="btnAddCr">＋ 新增自建帳號</button></div>
+    <div class="mute ovhint">在 VM 上自己建立的帳號要登記（不用填密碼）；停用或刪除後填上停用日期。</div>
+    <div class="tblwrap"><table>
+      <thead><tr><th>VM</th><th>帳號</th><th>權限</th><th>使用者</th><th>建立日期</th><th>用途</th><th>狀態</th><th>備註</th><th>最後修改</th><th></th></tr></thead>
+      <tbody id="ovCrBody"></tbody>
+    </table></div>
+  </div>
   <div id="envAlert" class="alert" hidden></div>
   <div id="emptyAlert" class="alert" hidden>還沒有資料。請到 <b>設定</b> 確認網段與實體機，再到 VM 清單新增 VM。</div>
 
@@ -357,6 +383,42 @@ section.set h3{margin:0 0 8px;font-size:14px}
   <div class="foot">
     <div class="left"><button type="button" id="btnCopyAp">複製申請文字</button></div>
     <button type="button" id="btnApCancel">取消</button><button type="submit" class="pri">送出登記</button>
+  </div>
+</form></dialog>
+
+<!-- 負責人：分享紀錄 -->
+<dialog id="shareDlg"><form id="shareForm" autocomplete="off">
+  <h2 id="shareTitle">分享紀錄</h2>
+  <div class="fg">
+    <label class="full">分享的帳號<select name="acc"></select></label>
+    <label>分享對象<input name="to" placeholder="姓名或單位"></label>
+    <label>分享日期<input name="date" type="date"></label>
+    <label class="full">原因<input name="reason"></label>
+    <label>收回日期（尚未收回請留空）<input name="revoked" type="date"></label>
+    <label class="full">備註<textarea name="note" rows="2"></textarea></label>
+  </div>
+  <div class="foot">
+    <div class="left"><button type="button" class="danger" id="btnShareDel">刪除</button></div>
+    <button type="button" id="btnShareCancel">取消</button><button type="submit" class="pri">儲存</button>
+  </div>
+</form></dialog>
+
+<!-- 負責人：自建帳號 -->
+<dialog id="crDlg"><form id="crForm" autocomplete="off">
+  <h2 id="crTitle">自建帳號</h2>
+  <div class="fg">
+    <label class="full">VM<select name="vm"></select></label>
+    <label>帳號<input name="u"></label>
+    <label>權限<select name="perm"></select></label>
+    <label>使用者<input name="user" placeholder="誰在使用這個帳號"></label>
+    <label>建立日期<input name="date" type="date"></label>
+    <label class="full">用途<input name="purpose"></label>
+    <label>停用日期（仍在使用請留空）<input name="disabled" type="date"></label>
+    <label class="full">備註<textarea name="note" rows="2"></textarea></label>
+  </div>
+  <div class="foot">
+    <div class="left"><button type="button" class="danger" id="btnCrDel">刪除</button></div>
+    <button type="button" id="btnCrCancel">取消</button><button type="submit" class="pri">儲存</button>
   </div>
 </form></dialog>
 
@@ -661,12 +723,27 @@ function cleanAcc(x) {
   }).filter(a => a.u);
   return out.length ? out : null;
 }
-/** 負責人填寫的紀錄（records.json）：只保留已知欄位的字串，自建帳號不收密碼 */
+/** 負責人填寫的紀錄（records.json）：只保留已知欄位的字串，自建帳號不收密碼
+    分享紀錄：acc 帳號 id，vmn／u 為登記當時的 VM 名稱與帳號（帳號之後不在清單中也看得懂）
+    自建帳號：vm 為 VM 的 id，vmn 為登記當時的 VM 名稱 */
 function cleanRecords(x) {
   const list = (a, keys) => arr(a).filter(isObj).map(r => { const o = {}; keys.forEach(k => { const v = str(r[k]); if (v) o[k] = v; }); return o; }).filter(r => r.id);
   return {
-    shares: list(x && x.shares, ["id", "acc", "to", "date", "reason", "revoked", "note", "updated"]),
-    created: list(x && x.created, ["id", "vmid", "u", "perm", "user", "date", "purpose", "disabled", "note", "updated"])
+    shares: list(x && x.shares, ["id", "acc", "vmn", "u", "to", "date", "reason", "revoked", "note", "updated"]),
+    created: list(x && x.created, ["id", "vm", "vmn", "u", "perm", "user", "date", "purpose", "disabled", "note", "updated"])
+  };
+}
+/** 管理員發佈給負責人的資料（負責人 repo 的 data.json） */
+function cleanOwnerData(d) {
+  d = isObj(d) ? d : {};
+  const o = isObj(d.owner) ? d.owner : {};
+  return {
+    v: 1, owner: { code: str(o.code), name: str(o.name) }, published: dateOr(d.published),
+    // 舊版發佈的資料沒有 VM id，暫用名稱代替，管理員重新發佈後就會補上
+    vms: arr(d.vms).filter(isObj).map(v => ({
+      id: str(v.id) || str(v.name), vmid: str(v.vmid), name: str(v.name), ip: str(v.ip), host: str(v.host),
+      accounts: arr(v.accounts).filter(isObj).map(a => ({ id: str(a.id), u: str(a.u), p: typeof a.p === "string" ? a.p : "" })).filter(a => a.id && a.u)
+    })).filter(v => v.id)
   };
 }
 /** 舊版的系統名稱／軟體／版本欄位，改併入備註，例如「GitLab：Gitlab-ce 15.4.6」 */
@@ -1398,7 +1475,7 @@ async function ghPut(repo, path, data, msg) {
 function ownerPayload(o) {
   const vms = S.vms.filter(v => !v.off)
     .map(v => ({ v, acc: (v.acc || []).filter(a => a.oid === o.id) })).filter(x => x.acc.length)
-    .map(({ v, acc }) => ({ vmid: v.q || "", name: v.n, ip: v.ip || "", host: hostName(v.h), accounts: acc.map(a => ({ id: a.id, u: a.u, p: a.p || "" })) }));
+    .map(({ v, acc }) => ({ id: v.id, vmid: v.q || "", name: v.n, ip: v.ip || "", host: hostName(v.h), accounts: acc.map(a => ({ id: a.id, u: a.u, p: a.p || "" })) }));
   return { v: 1, owner: { code: o.code, name: o.n }, published: nowStamp(), vms };
 }
 /** 發佈給 MIS 的資料：管理員資料的完整副本，但帳號一律不含密碼 */
@@ -1766,14 +1843,175 @@ $("#btnGhConn").onclick = () => {
 async function initRole() {
   if (!GH.role) { $("#pill").textContent = "確認 token 權限中…"; openSettings(); return connectToken(GH.token); }
   document.body.classList.add("role-limited");
-  const who = GH.role === "owner" ? "負責人（" + GH.repo + "）" : ROLE_TEXT[GH.role];
+  if (GH.role === "owner") return startOwner();
+  const who = ROLE_TEXT[GH.role];
+  $("#roleBox").hidden = false;
   $("#roleBox").replaceChildren(el("h2", { text: "已連線：" + who }),
-    el("p", { class: "mute", text: GH.role === "owner"
-      ? "負責人畫面還在建置中。完成後，這裡會顯示你負責的 VM 與帳號，並可填寫分享紀錄與自建帳號。"
-      : "MIS 畫面還在建置中。完成後，這裡會顯示所有 VM、IP 與帳號資料（不含密碼），只能查看。" }));
+    el("p", { class: "mute", text: "MIS 畫面還在建置中。完成後，這裡會顯示所有 VM、IP 與帳號資料（不含密碼），只能查看。" }));
   $("#pill").textContent = who; $("#pill").className = "pill ok";
   $("#ghText").textContent = "已連線：" + who;
 }
+
+/* ---------- 負責人畫面 ----------
+   data.json：管理員發佈的 VM 與帳號，只能查看；records.json：負責人填寫的分享紀錄與自建帳號，管理員「發佈並同步」時讀回 */
+let OD = cleanOwnerData({}), OR = { v: 1, ...cleanRecords({}) }, recStore = null, pubOk = false;
+function startOwner() {
+  $("#ownerView").hidden = false;
+  const opt = { owner: GH.owner, repo: GH.repo, token: GH.token, pretty: true };
+  const pub = GitHubStore.create({ ...opt, fileName: "data.json", clean: cleanOwnerData,
+    onChange: st => { OD = st; renderOwner(); },
+    onStatus: (st, info) => { pubOk = st === "ready"; if (info.error) toast("讀取管理員發佈的資料失敗：" + info.error.message, "bad"); renderOwner(); } });
+  recStore = GitHubStore.create({ ...opt, fileName: "records.json", clean: d => ({ v: 1, ...cleanRecords(d) }),
+    onChange: st => { OR = st; renderOwner(); }, onStatus });
+  pub.init(); recStore.init();
+}
+/** 修改 records.json；commit 訊息註明是哪位負責人（所有 token 都在同一個 GitHub 帳號下，作者看不出是誰） */
+function recEdit(fn) {
+  if (!recStore || recStore.status !== "ready") { openSettings(); toast("尚未連線 GitHub，請到設定檢查", "bad"); return Promise.resolve(false); }
+  return recStore.mutate(fn, "負責人更新紀錄：" + (OD.owner.name || GH.repo)).then(r => r !== false);
+}
+const ownAccs = () => OD.vms.flatMap(v => v.accounts.map(a => ({ v, a })));
+/** 紀錄對應的帳號／VM 名稱；已不在清單中（帳號改給別人、VM 下架）時用登記當時的名稱 */
+function shareAcc(r) {
+  const x = ownAccs().find(x => x.a.id === r.acc);
+  return x ? { text: x.v.name + " / " + x.a.u } : { text: [r.vmn, r.u].filter(Boolean).join(" / ") || "（不明帳號）", gone: true };
+}
+function crVm(r) {
+  const v = OD.vms.find(v => v.id === r.vm);
+  return v ? { text: v.name } : { text: r.vmn || "（不明 VM）", gone: true };
+}
+const goneTag = x => x.gone ? el("span", { class: "mute", text: "（已不在你的清單）" }) : "";
+const stTag = (end, on, off) => el("span", { class: "tag " + (end ? "s-released" : "s-used"), text: end ? off + " " + end : on });
+const byDateDesc = (x, y) => (y.date || "").localeCompare(x.date || "") || (y.updated || "").localeCompare(x.updated || "");
+function renderOwner() {
+  const name = OD.owner.name;
+  $("#ovTitle").textContent = "負責人" + (name ? "：" + name : "");
+  $("#ovSub").textContent = (OD.published ? "管理員發佈時間：" + OD.published : "") + (OD.published ? " · " : "") + "資料位置：" + GH.repo;
+  const al = $("#ovAlert");
+  al.hidden = !pubOk || !!OD.published;
+  al.textContent = "管理員還沒有發佈資料給你。發佈後這個畫面會自動更新。";
+  // 我的 VM 與帳號
+  const show = $("#ovShowPw").checked, rows = ownAccs();
+  $("#ovCount").textContent = rows.length ? OD.vms.length + " 台 VM · " + rows.length + " 個帳號" : "";
+  $("#ovVmBody").replaceChildren(...(rows.length ? rows.map(({ v, a }) => el("tr", null,
+    el("td", { text: v.name }), el("td", { text: v.ip || "—" }), el("td", { text: v.host || "—" }), el("td", { text: v.vmid || "—" }), el("td", { text: a.u }),
+    el("td", null, el("span", { class: "pw", text: a.p ? (show ? a.p : "••••••") : "—" }),
+      a.p && " ", a.p && el("button", { class: "sm", text: "複製", onclick: () => copyText(a.p) }))))
+    : [el("tr", null, el("td", { colspan: 6, class: "empty", text: OD.published ? "目前沒有指派給你的帳號" : "尚無資料" }))]));
+  // 分享紀錄
+  const sh = OR.shares.slice().sort(byDateDesc);
+  $("#ovShareCount").textContent = sh.length ? sh.length + " 筆（分享中 " + sh.filter(r => !r.revoked).length + "）" : "";
+  $("#ovShareBody").replaceChildren(...(sh.length ? sh.map(r => {
+    const x = shareAcc(r);
+    return el("tr", { ondblclick: () => openShare(r.id) },
+      el("td", null, x.text, goneTag(x)), el("td", { text: r.to || "" }), el("td", { text: r.date || "" }), el("td", { class: "note", text: r.reason || "", title: r.reason || "" }),
+      el("td", null, stTag(r.revoked, "分享中", "已收回")), el("td", { class: "note", text: r.note || "", title: r.note || "" }),
+      el("td", { class: "mute", text: r.updated || "" }), el("td", { class: "act" }, el("button", { class: "sm", text: "編輯", onclick: () => openShare(r.id) })));
+  }) : [el("tr", null, el("td", { colspan: 8, class: "empty", text: "還沒有分享紀錄" }))]));
+  // 自建帳號
+  const cr = OR.created.slice().sort(byDateDesc);
+  $("#ovCrCount").textContent = cr.length ? cr.length + " 筆（使用中 " + cr.filter(r => !r.disabled).length + "）" : "";
+  $("#ovCrBody").replaceChildren(...(cr.length ? cr.map(r => {
+    const x = crVm(r);
+    return el("tr", { ondblclick: () => openCr(r.id) },
+      el("td", null, x.text, goneTag(x)), el("td", { text: r.u || "" }), el("td", { text: r.perm || "" }), el("td", { text: r.user || "" }), el("td", { text: r.date || "" }),
+      el("td", { class: "note", text: r.purpose || "", title: r.purpose || "" }), el("td", null, stTag(r.disabled, "使用中", "已停用")),
+      el("td", { class: "note", text: r.note || "", title: r.note || "" }), el("td", { class: "mute", text: r.updated || "" }),
+      el("td", { class: "act" }, el("button", { class: "sm", text: "編輯", onclick: () => openCr(r.id) })));
+  }) : [el("tr", null, el("td", { colspan: 10, class: "empty", text: "還沒有自建帳號紀錄" }))]));
+}
+$("#ovShowPw").onchange = renderOwner;
+/** 兩筆紀錄除了最後修改時間以外是否相同 */
+function sameRec(a, b) {
+  const ks = new Set([...Object.keys(a), ...Object.keys(b)]);
+  ks.delete("updated");
+  return [...ks].every(k => (a[k] || "") === (b[k] || ""));
+}
+/** 新增或修改一筆紀錄；kind 為 shares／created，snap(舊紀錄) 回傳要一併存下的名稱快照 */
+function recSave(kind, id, data, snap, dlg) {
+  const make = prev => strip({ id: prev ? prev.id : uid(), ...data, ...snap(prev), updated: nowStamp() });
+  const cur = id && OR[kind].find(r => r.id === id);
+  if (cur && sameRec(cur, make(cur))) { dlg.close(); return toast("沒有變更"); }
+  let err = "";
+  recEdit(st => {
+    const list = st[kind], i = id ? list.findIndex(r => r.id === id) : -1;
+    if (id && i < 0) { err = "這筆紀錄已被刪除"; return; }
+    if (id) list[i] = make(list[i]); else list.push(make(null));
+  }).then(ok => { if (!ok) return; if (err) return toast(err, "bad"); dlg.close(); toast(id ? "已儲存" : "已新增"); });
+}
+function recDel(kind, id, dlg) {
+  if (!confirm("刪除這筆紀錄？\n管理員同步時會看到有紀錄被刪除。")) return;
+  recEdit(st => { st[kind] = st[kind].filter(r => r.id !== id); }).then(ok => { if (ok) { dlg.close(); toast("已刪除"); } });
+}
+/** 下拉選單；目前的值不在選項中（已不在清單）時保留顯示 */
+function fillSelect(sel, opts, value, goneText) {
+  sel.replaceChildren(...opts.map(([v, t]) => el("option", { value: v, text: t })));
+  if (value && !opts.some(([v]) => v === value)) sel.append(el("option", { value, text: goneText + "（已不在你的清單）" }));
+  sel.value = value || (opts[0] ? opts[0][0] : "");
+}
+let shareEdit = "", crEdit = "";
+const shareForm = $("#shareForm"), crForm = $("#crForm");
+function openShare(id) {
+  const r = id ? OR.shares.find(x => x.id === id) : null;
+  if (id && !r) return toast("找不到這筆紀錄（可能已被刪除）", "bad");
+  if (!r && !ownAccs().length) return toast("目前沒有可分享的帳號", "bad");
+  const f = shareForm;
+  shareEdit = id || "";
+  fillSelect(f.acc, ownAccs().map(({ v, a }) => [a.id, v.name + " / " + a.u]), r && r.acc, r ? shareAcc(r).text : "");
+  f.to.value = r ? r.to || "" : ""; f.date.value = r ? r.date || "" : today(); f.reason.value = r ? r.reason || "" : "";
+  f.revoked.value = r ? r.revoked || "" : ""; f.note.value = r ? r.note || "" : "";
+  $("#shareTitle").textContent = r ? "編輯分享紀錄" : "新增分享紀錄";
+  $("#btnShareDel").hidden = !r;
+  $("#shareDlg").showModal();
+}
+shareForm.addEventListener("submit", e => {
+  e.preventDefault();
+  const f = shareForm;
+  const data = { acc: f.acc.value, to: f.to.value.trim(), date: f.date.value, reason: f.reason.value.trim(), revoked: f.revoked.value, note: f.note.value.trim() };
+  if (!data.acc) return toast("請選擇帳號", "bad");
+  if (!data.to) return toast("請輸入分享對象", "bad");
+  if (!data.date) return toast("請輸入分享日期", "bad");
+  if (data.revoked && data.revoked < data.date) return toast("收回日期不能早於分享日期", "bad");
+  const x = ownAccs().find(x => x.a.id === data.acc);
+  recSave("shares", shareEdit, data, prev => x ? { vmn: x.v.name, u: x.a.u } : { vmn: prev && prev.vmn, u: prev && prev.u }, $("#shareDlg"));
+});
+$("#btnShareDel").onclick = () => recDel("shares", shareEdit, $("#shareDlg"));
+$("#btnShareCancel").onclick = () => $("#shareDlg").close();
+$("#btnAddShare").onclick = () => openShare(null);
+function openCr(id) {
+  const r = id ? OR.created.find(x => x.id === id) : null;
+  if (id && !r) return toast("找不到這筆紀錄（可能已被刪除）", "bad");
+  if (!r && !OD.vms.length) return toast("目前沒有你負責的 VM", "bad");
+  const f = crForm;
+  crEdit = id || "";
+  fillSelect(f.vm, OD.vms.map(v => [v.id, v.name + (v.ip ? "（" + v.ip + "）" : "")]), r && r.vm, r ? crVm(r).text : "");
+  f.perm.replaceChildren(...PERM.map(p => el("option", { value: p, text: p })));
+  f.perm.value = r && PERM.includes(r.perm) ? r.perm : "一般";
+  f.u.value = r ? r.u || "" : ""; f.user.value = r ? r.user || "" : ""; f.date.value = r ? r.date || "" : today();
+  f.purpose.value = r ? r.purpose || "" : ""; f.disabled.value = r ? r.disabled || "" : ""; f.note.value = r ? r.note || "" : "";
+  $("#crTitle").textContent = r ? "編輯自建帳號" : "新增自建帳號";
+  $("#btnCrDel").hidden = !r;
+  $("#crDlg").showModal();
+}
+crForm.addEventListener("submit", e => {
+  e.preventDefault();
+  const f = crForm;
+  const data = { vm: f.vm.value, u: f.u.value.trim(), perm: f.perm.value, user: f.user.value.trim(), date: f.date.value,
+    purpose: f.purpose.value.trim(), disabled: f.disabled.value, note: f.note.value.trim() };
+  if (!data.vm) return toast("請選擇 VM", "bad");
+  if (!data.u) return toast("請輸入帳號", "bad");
+  if (!data.user) return toast("請輸入使用者", "bad");
+  if (!data.date) return toast("請輸入建立日期", "bad");
+  if (data.disabled && data.disabled < data.date) return toast("停用日期不能早於建立日期", "bad");
+  const v = OD.vms.find(v => v.id === data.vm);
+  if (v && v.accounts.some(a => a.u === data.u)) return toast("「" + data.u + "」是管理員發佈給你的帳號，不用登記為自建帳號", "bad");
+  const dup = OR.created.find(r => r.id !== crEdit && r.vm === data.vm && r.u === data.u && !r.disabled);
+  if (dup && !data.disabled) return toast("這台 VM 已經登記了使用中的「" + data.u + "」", "bad");
+  recSave("created", crEdit, data, prev => ({ vmn: v ? v.name : prev && prev.vmn }), $("#crDlg"));
+});
+$("#btnCrDel").onclick = () => recDel("created", crEdit, $("#crDlg"));
+$("#btnCrCancel").onclick = () => $("#crDlg").close();
+$("#btnAddCr").onclick = () => openCr(null);
 $("#btnGhOff").onclick = () => {
   if (!confirm("中斷 GitHub 連線？\n這台電腦會清除儲存的 token，改回使用本機資料夾。GitHub 上的資料不受影響。")) return;
   try { localStorage.removeItem(GH_KEY); } catch (e) {}
