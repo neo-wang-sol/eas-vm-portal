@@ -394,7 +394,7 @@ section.set h3{margin:0 0 8px;font-size:14px}
   <div class="accrow head"><span>帳號</span><span>密碼</span><span>負責人</span><span></span></div>
   <div id="accRows"></div>
   <div class="foot">
-    <div class="left"><button type="button" id="btnAccAdmin" title="VM 管理人保留的帳號，負責人空白，自動產生密碼">＋ eas-admin</button><button type="button" id="btnAccOwner" title="給專案負責人的帳號，自動產生密碼">＋ eas-owner</button><button type="button" id="btnAccAdd">＋ 其他帳號</button><label style="display:flex;align-items:center;gap:4px;font-size:13px"><input type="checkbox" id="accDlgShow"> 顯示密碼</label></div>
+    <div class="left"><button type="button" id="btnAccAdmin" title="VM 管理人保留的帳號，負責人空白，自動產生密碼">＋ eas-admin</button><button type="button" id="btnAccOwner" title="給專案負責人的帳號，自動產生密碼">＋ eas-owner</button><button type="button" id="btnAccUnknown" title="帳號、密碼都還不知道時先佔位，密碼空白；選好負責人後，由負責人在網站上「更新帳密」回填">＋ unknow</button><button type="button" id="btnAccAdd">＋ 其他帳號</button><label style="display:flex;align-items:center;gap:4px;font-size:13px"><input type="checkbox" id="accDlgShow"> 顯示密碼</label></div>
     <button type="button" id="btnAccCancel">取消</button><button type="button" class="pri" id="btnAccSave">儲存</button>
   </div>
 </div></dialog>
@@ -1313,11 +1313,11 @@ function pwConflict(st, vmId, list) {
   }
   return "";
 }
-/** 快速新增常用帳號並自動產生密碼；會取代視窗中的空白列 */
-function quickAdd(u, focusOwner) {
+/** 快速新增常用帳號；gen 為 true 時自動產生密碼，否則密碼空白；會取代視窗中的空白列 */
+function quickAdd(u, focusOwner, gen = true) {
   const exist = accDraft.findIndex(a => (a.u || "").trim() === u);
   if (exist >= 0) { toast("這台 VM 已經有 " + u, "bad"); $("#accRows").children[exist].querySelector("input").focus(); return; }
-  const row = { id: uid(), u, p: uniquePassword(accVm), oid: "" };
+  const row = { id: uid(), u, p: gen ? uniquePassword(accVm) : "", oid: "" };
   const blank = accDraft.findIndex(a => !a.u && !a.p && !a.oid && !a.o);
   if (blank >= 0) accDraft[blank] = row; else accDraft.push(row);
   renderAccRows();
@@ -1326,6 +1326,7 @@ function quickAdd(u, focusOwner) {
 }
 $("#btnAccAdmin").onclick = () => quickAdd("eas-admin", false);
 $("#btnAccOwner").onclick = () => quickAdd("eas-owner", true);
+$("#btnAccUnknown").onclick = () => quickAdd("unknow", true, false);
 $("#btnAccAdd").onclick = () => { accDraft.push({ id: uid(), u: "", p: "", oid: "" }); renderAccRows(); $("#accRows").lastChild.querySelector("input").focus(); };
 $("#accDlgShow").onchange = renderAccRows;
 $("#btnAccCancel").onclick = () => $("#accDlg").close();
