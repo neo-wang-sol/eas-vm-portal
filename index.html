@@ -38,7 +38,7 @@ th{background:#f8f9fb;font-weight:600;font-size:12px;color:var(--mute);position:
 tr.retired td{color:var(--mute);text-decoration:line-through}
 tr.retired td.act{text-decoration:none}
 #accDlg{width:min(900px,96vw)}
-.accrow{display:grid;grid-template-columns:1fr 1fr 1fr 190px;gap:6px;margin-bottom:6px;align-items:center}
+.accrow{display:grid;grid-template-columns:1fr 1fr 1fr 130px;gap:6px;margin-bottom:6px;align-items:center}
 .accrow.head span{font-size:12px;color:var(--mute)}
 .accrow .btns{display:flex;gap:4px}
 .pwcell{display:flex;gap:4px}
@@ -88,6 +88,7 @@ dialog{border:0;border-radius:12px;padding:0;width:min(720px,94vw);box-shadow:0 
 dialog::backdrop{background:rgba(20,25,35,.4)}
 dialog form,dialog .dlg{padding:18px 20px}
 dialog h2{margin:0 0 12px;font-size:17px}
+.dlghead{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
 .fg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px}
 .fg label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--mute)}
 .fg .full{grid-column:1/-1}
@@ -388,7 +389,7 @@ section.set h3{margin:0 0 8px;font-size:14px}
 
 <!-- 帳號管理 -->
 <dialog id="accDlg"><div class="dlg">
-  <h2 id="accTitle">帳號管理</h2>
+  <div class="dlghead"><h2 id="accTitle">帳號管理</h2><button type="button" class="sm" id="btnAccGen" title="產生 16 碼隨機密碼並複製，再自行貼到要使用的密碼欄">產生密碼</button></div>
   <div class="mute" id="accSub" style="font-size:12px;margin:-6px 0 12px"></div>
   <div class="accrow head"><span>帳號</span><span>密碼</span><span>負責人</span><span></span></div>
   <div id="accRows"></div>
@@ -425,11 +426,11 @@ section.set h3{margin:0 0 8px;font-size:14px}
 
 <!-- 負責人：更新帳密 -->
 <dialog id="pwDlg"><form id="pwForm" autocomplete="off">
-  <h2>更新帳密</h2>
+  <div class="dlghead"><h2>更新帳密</h2><button type="button" class="sm" id="btnPwGen" title="產生 16 碼隨機密碼並複製，再自行貼到密碼欄">產生密碼</button></div>
   <div class="fg">
     <label class="full">VM / 帳號<span class="fixed" id="pwTarget"></span></label>
     <label>帳號<input name="u"></label>
-    <label>密碼<span class="pwcell"><input name="p" class="pw" type="password" autocomplete="new-password"><button type="button" class="sm" id="btnPwGen" title="產生 16 碼隨機密碼">產生</button><button type="button" class="sm" id="btnPwShow">顯示</button></span></label>
+    <label>密碼<span class="pwcell"><input name="p" class="pw" type="password" autocomplete="new-password"><button type="button" class="sm" id="btnPwShow">顯示</button></span></label>
     <div class="hint full mute">請填 VM 上目前實際的帳號與密碼。送出後顯示「待同步」，管理員「發佈並同步」後生效。改回原本的值等於取消。</div>
   </div>
   <div class="foot">
@@ -1268,22 +1269,14 @@ function openAcc(id) {
 }
 function renderAccRows() {
   const show = $("#accDlgShow").checked, box = $("#accRows");
-  box.replaceChildren(...accDraft.map((a, i) => {
-    const pw = el("input", { value: a.p || "", placeholder: "密碼", type: show ? "text" : "password", autocomplete: "new-password", class: "pw", oninput: e => a.p = e.target.value });
-    // 已有密碼時先確認，避免誤按蓋掉目前的密碼（儲存前都還能按「取消」放棄）
-    const gen = () => {
-      if (a.p && !confirm("「" + (a.u || "（未命名）") + "」產生新密碼會取代目前的密碼，確定嗎？\n（按「儲存」前都還可以按「取消」放棄）")) return;
-      a.p = pw.value = genPassword();
-    };
-    return el("div", { class: "accrow" },
-      el("input", { value: a.u || "", placeholder: "帳號", oninput: e => a.u = e.target.value }),
-      el("span", { class: "pwcell" }, pw),
-      el("select", { onchange: e => { const val = e.target.value; if (val.startsWith("legacy:")) { a.o = val.slice(7); a.oid = ""; } else { a.oid = val; a.o = ""; } } }, ...ownerOptions(a)),
-      el("span", { class: "btns" },
-        el("button", { type: "button", class: "sm", text: "複製密碼", onclick: () => a.p ? copyText(a.p) : toast("沒有密碼", "bad") }),
-        el("button", { type: "button", class: "sm", text: "產生", title: "產生 16 碼隨機密碼（已有密碼時會先確認）", onclick: gen }),
-        el("button", { type: "button", class: "sm danger", text: "刪除", onclick: () => { accDraft.splice(i, 1); renderAccRows(); } })));
-  }));
+  box.replaceChildren(...accDraft.map((a, i) => el("div", { class: "accrow" },
+    el("input", { value: a.u || "", placeholder: "帳號", oninput: e => a.u = e.target.value }),
+    el("span", { class: "pwcell" },
+      el("input", { value: a.p || "", placeholder: "密碼", type: show ? "text" : "password", autocomplete: "new-password", class: "pw", oninput: e => a.p = e.target.value })),
+    el("select", { onchange: e => { const val = e.target.value; if (val.startsWith("legacy:")) { a.o = val.slice(7); a.oid = ""; } else { a.oid = val; a.o = ""; } } }, ...ownerOptions(a)),
+    el("span", { class: "btns" },
+      el("button", { type: "button", class: "sm", text: "複製密碼", onclick: () => a.p ? copyText(a.p) : toast("沒有密碼", "bad") }),
+      el("button", { type: "button", class: "sm danger", text: "刪除", onclick: () => { accDraft.splice(i, 1); renderAccRows(); } })))));
   if (!accDraft.length) box.append(el("div", { class: "mute", style: "font-size:12px;padding:6px 0", text: "這台 VM 沒有帳號（儲存後生效）" }));
 }
 /* 密碼產生：16 碼，含大小寫、數字、符號各至少一個，排除 0/O、1/l/I 等易混淆字元 */
@@ -1294,6 +1287,12 @@ function genPassword(len = 16) {
   while (c.length < len) c.push(all[rnd(all.length)]);
   for (let i = c.length - 1; i > 0; i--) { const j = rnd(i + 1); [c[i], c[j]] = [c[j], c[i]]; }
   return c.join("");
+}
+/** 視窗右上角的「產生密碼」：產生後複製到剪貼簿，由使用者自己貼到要用的欄位（不會直接蓋掉任何密碼） */
+function genAndCopy() {
+  const p = genPassword();
+  navigator.clipboard.writeText(p).then(() => toast("已產生新密碼並複製，請貼到要使用的密碼欄"),
+    () => prompt("無法自動複製，請手動複製這組密碼：", p));
 }
 /** 快速新增常用帳號；gen 為 true 時自動產生密碼，否則密碼空白；會取代視窗中的空白列 */
 function quickAdd(u, focusOwner, gen = true) {
@@ -1309,6 +1308,7 @@ function quickAdd(u, focusOwner, gen = true) {
 $("#btnAccAdmin").onclick = () => quickAdd("eas-admin", false);
 $("#btnAccOwner").onclick = () => quickAdd("eas-owner", true);
 $("#btnAccUnknown").onclick = () => quickAdd("unknow", true, false);
+$("#btnAccGen").onclick = genAndCopy;
 $("#btnAccAdd").onclick = () => { accDraft.push({ id: uid(), u: "", p: "", oid: "" }); renderAccRows(); $("#accRows").lastChild.querySelector("input").focus(); };
 $("#accDlgShow").onchange = renderAccRows;
 $("#btnAccCancel").onclick = () => $("#accDlg").close();
@@ -2141,7 +2141,7 @@ function openPw(accId) {
   pwForm.p.type = "password"; $("#btnPwShow").textContent = "顯示";
   $("#pwDlg").showModal();
 }
-$("#btnPwGen").onclick = () => { pwForm.p.value = genPassword(); pwForm.p.type = "text"; $("#btnPwShow").textContent = "隱藏"; };
+$("#btnPwGen").onclick = genAndCopy;
 $("#btnPwShow").onclick = () => { const show = pwForm.p.type === "password"; pwForm.p.type = show ? "text" : "password"; $("#btnPwShow").textContent = show ? "隱藏" : "顯示"; };
 $("#btnPwCancel").onclick = () => $("#pwDlg").close();
 pwForm.addEventListener("submit", e => {
