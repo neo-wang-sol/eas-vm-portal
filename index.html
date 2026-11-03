@@ -1610,12 +1610,18 @@ async function encryptXlsx(buf, password) {
   const XP = await loadLib(XLSXPOP_URL, "XlsxPopulate");
   return (await XP.fromDataAsync(buf)).outputAsync({ type: "arraybuffer", password });
 }
-/** 產生給負責人的 Excel；rows 為要匯出的 [{v, a}] */
-async function buildOwnerWorkbook(owner, rows) {
+/** 產生給負責人的 Excel；ow 為負責人，rows 為要匯出的 [{v, a}]
+    分享紀錄、自建帳號會帶入最後一次「發佈並同步」讀回的紀錄 */
+async function buildOwnerWorkbook(ow, rows) {
   const ExcelJS = await loadExcelJS();
-  const who = ownerText(owner), date = today();
+  const who = ownerText(ow.n), date = today();
   const vmLabel = v => v.n + (v.ip ? "（" + v.ip + "）" : "");
   const vms = [...new Map(rows.map(r => [r.v.id, r.v])).values()];
+  const rec = S.records[ow.id] || { shares: [], created: [] };
+  const accIds = new Set(rows.map(r => r.a.id));
+  // 舊版發佈的資料沒有 VM id，負責人當時登記的 vm 會是 VM 名稱
+  const shares = rec.shares.filter(r => accIds.has(r.acc)).sort((x, y) => (x.date || "").localeCompare(y.date || ""));
+  const created = rec.created.filter(r => vms.some(v => r.vm === v.id || r.vm === v.n)).sort((x, y) => (x.date || "").localeCompare(y.date || ""));
   const wb = new ExcelJS.Workbook();
   wb.creator = "VM 與 IP 管理"; wb.created = new Date();
   const line = { style: "thin", color: { argb: "FFD0D5DD" } };
@@ -1646,6 +1652,8 @@ async function buildOwnerWorkbook(owner, rows) {
     ["VM 帳號清單與使用紀錄", { bold: true, size: 16 }],
     ["VM：" + vms.map(vmLabel).join("、") + "　　帳號：" + [...new Set(rows.map(r => r.a.u))].join("、"), { bold: true }],
     ["負責人：" + who + "　　匯出日期：" + date],
+    [rec.at ? "分享紀錄與自建帳號已帶入負責人在網頁上填寫的內容（同步時間：" + rec.at + "，分享 " + shares.length + " 筆、自建 " + created.length + " 筆）。"
+      : "尚未同步過負責人在網頁上填寫的紀錄。"],
     [""],
     ["一、本檔案用途", { bold: true }],
     ["　　本檔案只記錄上述 VM 的使用狀況。帳號密碼列於工作表「帳號清單」，請妥善保管，勿轉寄或存放於公開位置；首次登入後請立即變更密碼。"],
@@ -1671,8 +1679,13 @@ async function buildOwnerWorkbook(owner, rows) {
 
   // 3. 分享紀錄、4. 自建帳號（負責人填寫；一份檔案只對應一台 VM，所以不需要 VM 欄位）
   // 權限下拉選單的來源放在最後的隱藏工作表「清單」
-  sheet("分享紀錄", [{ h: "分享對象", w: 16 }, { h: "分享日期", w: 14, date: true }, { h: "原因", w: 30 }, { h: "收回日期", w: 14, date: true }, { h: "備註", w: 24 }], FILL_ROWS);
-  sheet("自建帳號", [{ h: "新建帳號", w: 18 }, { h: "權限", w: 10, list: "'清單'!$A$1:$A$" + PERM.length }, { h: "使用者", w: 16 }, { h: "建立日期", w: 14, date: true }, { h: "用途", w: 30 }, { h: "停用日期", w: 14, date: true }, { h: "備註", w: 24 }], FILL_ROWS);
+  // 已同步的紀錄填在最前面，後面保留空白列
+  const toDate = s => /^\d{4}-\d{2}-\d{2}$/.test(s || "") ? new Date(Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10))) : (s || "");
+  const fill = (ws, list) => list.forEach((vals, i) => vals.forEach((x, j) => { if (x) ws.getCell(i + 2, j + 1).value = x; }));
+  fill(sheet("分享紀錄", [{ h: "分享對象", w: 16 }, { h: "分享日期", w: 14, date: true }, { h: "原因", w: 30 }, { h: "收回日期", w: 14, date: true }, { h: "備註", w: 24 }], FILL_ROWS + shares.length),
+    shares.map(r => [r.to, toDate(r.date), r.reason, toDate(r.revoked), r.note]));
+  fill(sheet("自建帳號", [{ h: "新建帳號", w: 18 }, { h: "權限", w: 10, list: "'清單'!$A$1:$A$" + PERM.length }, { h: "使用者", w: 16 }, { h: "建立日期", w: 14, date: true }, { h: "用途", w: 30 }, { h: "停用日期", w: 14, date: true }, { h: "備註", w: 24 }], FILL_ROWS + created.length),
+    created.map(r => [r.u, r.perm, r.user, toDate(r.date), r.purpose, toDate(r.disabled), r.note]));
   const src = wb.addWorksheet("清單", { state: "hidden" });
   PERM.forEach((t, i) => src.getCell(i + 1, 1).value = t);
   return wb;
@@ -1693,7 +1706,7 @@ async function exportAccount(vmId, draft) {
   const pw = ow.n;
   toast("產生 Excel 中…");
   try {
-    const wb = await buildOwnerWorkbook(ow.n, [{ v, a }]);
+    const wb = await buildOwnerWorkbook(ow, [{ v, a }]);
     const buf = await encryptXlsx(await wb.xlsx.writeBuffer(), pw);
     const name = ("VM_" + v.n + "_" + today() + ".xlsx").replace(/[\\/:*?"<>|]/g, "_");
     const link = el("a", { href: URL.createObjectURL(new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })), download: name });
