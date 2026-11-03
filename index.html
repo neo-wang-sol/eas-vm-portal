@@ -54,9 +54,11 @@ td.num{text-align:right}
 .warnt{color:var(--warn);font-weight:600}
 .maprow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0}
 /* 負責人、MIS：隱藏所有管理員功能，只顯示角色畫面與設定中的 GitHub 連線 */
-.role-limited .tabs:not(#ovTabs), .role-limited main > :not(#roleBox):not(#ownerView), .role-limited #btnPub, .role-limited #btnCopy,
+.role-limited .tabs:not(#ovTabs), .role-limited main > :not(#ownerView), .role-limited #btnPub, .role-limited #btnCopy,
 .role-limited #setDlg section.set:not(:first-of-type) { display: none !important; }
-#roleBox h2 { margin: 0 0 6px; font-size: 18px; }
+/* MIS：唯讀，隱藏所有寫入功能與密碼欄位 */
+.ro .rw, .ro .pwcol, .ro #setDlg section.set:not(:first-of-type) { display: none !important; }
+.info { background: #eef3fd; border: 1px solid #c9d7f7; color: #1e3a8a; border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; font-size: 13px; }
 .ovsec { margin-bottom: 6px; }
 #ovInfoDlg { width: min(420px, 94vw); }
 #ovInfo { grid-template-columns: 100px 1fr; }
@@ -112,7 +114,7 @@ section.set h3{margin:0 0 8px;font-size:14px}
 <body>
 <header>
   <h1>VM 與 IP 管理</h1>
-  <div class="tabs"><button data-tab="vm">VM 清單</button><button data-tab="ip">IP 管理<span id="ipBadge"></span></button><button data-tab="acc">帳號</button><button data-tab="own">負責人<span id="ownBadge"></span></button></div>
+  <div class="tabs"><button data-tab="vm">VM 清單</button><button data-tab="ip">IP 管理<span id="ipBadge"></span></button><button data-tab="acc">帳號</button><button data-tab="own">負責人<span id="ownBadge"></span></button><button data-tab="rec">負責人紀錄</button></div>
   <div class="tabs" id="ovTabs" hidden><button data-ov="vm">我的 VM</button><button data-ov="share">分享紀錄</button><button data-ov="cr">自建帳號</button></div>
   <div class="grow"></div>
   <span id="pill" class="pill">未連接</span>
@@ -122,7 +124,6 @@ section.set h3{margin:0 0 8px;font-size:14px}
 </header>
 
 <main>
-  <div id="roleBox" class="card" hidden></div>
   <!-- 負責人畫面 -->
   <div id="ownerView" hidden>
     <div id="ovAlert" class="alert" hidden></div>
@@ -153,6 +154,7 @@ section.set h3{margin:0 0 8px;font-size:14px}
     </div>
   </div>
   <div id="envAlert" class="alert" hidden></div>
+  <div id="roNote" class="info" hidden></div>
   <div id="emptyAlert" class="alert" hidden>還沒有資料。請到 <b>設定</b> 確認網段與實體機，再到 VM 清單新增 VM。</div>
 
   <div id="tab-vm" hidden>
@@ -168,7 +170,7 @@ section.set h3{margin:0 0 8px;font-size:14px}
       <div class="grow"></div>
       <button id="btnAudit" title="Excel：各負責人的帳號、分享紀錄、自建帳號，作為帳號管理的稽核依據（不含密碼）">匯出帳號管理紀錄</button>
       <button id="btnVmXls" title="Excel：所有 VM（含已下架）">匯出 VM 清單</button>
-      <button class="pri" id="btnAddVm">＋ 新增 VM</button>
+      <button class="pri rw" id="btnAddVm">＋ 新增 VM</button>
     </div>
     <div class="tblwrap"><table>
       <thead><tr><th>實體機</th><th>VM ID</th><th>名稱</th><th>IP</th><th>狀態</th><th>CPU</th><th>記憶體</th><th>標籤</th><th>等級</th><th>Proxy</th><th>EDR</th><th></th></tr></thead>
@@ -184,7 +186,7 @@ section.set h3{margin:0 0 8px;font-size:14px}
           <div class="bar" style="margin-bottom:10px">
             <b id="gridTitle"></b><span class="mute" id="gridStat"></span>
             <div class="grow"></div>
-            <button class="pri" id="btnApply">申請新 IP</button>
+            <button class="pri rw" id="btnApply">申請新 IP</button>
           </div>
           <div class="grid" id="grid"></div>
           <div class="legend" id="legend"></div>
@@ -214,11 +216,11 @@ section.set h3{margin:0 0 8px;font-size:14px}
     <div class="bar">
       <input id="qAcc" type="search" placeholder="搜尋帳號、負責人、VM、IP…" style="width:260px">
       <select id="fAccOwner"></select>
-      <label style="display:flex;align-items:center;gap:4px"><input type="checkbox" id="accShowPw"> 顯示密碼</label>
+      <label class="rw" style="display:flex;align-items:center;gap:4px"><input type="checkbox" id="accShowPw"> 顯示密碼</label>
       <span class="mute" id="accCount"></span>
     </div>
     <div class="tblwrap"><table>
-      <thead><tr><th>負責人</th><th>帳號</th><th>密碼</th><th>VM</th><th>實體機</th><th>IP</th><th>VM 狀態</th><th></th></tr></thead>
+      <thead><tr><th>負責人</th><th>帳號</th><th class="pwcol">密碼</th><th>VM</th><th>實體機</th><th>IP</th><th>VM 狀態</th><th></th></tr></thead>
       <tbody id="accBody"></tbody>
     </table></div>
   </div>
@@ -230,11 +232,29 @@ section.set h3{margin:0 0 8px;font-size:14px}
       <select id="fOwnShow"><option value="on">啟用中</option><option value="off">已停用</option><option value="all">全部</option></select>
       <span class="mute" id="ownCount"></span>
       <div class="grow"></div>
-      <button class="pri" id="btnAddOwn">＋ 新增負責人</button>
+      <button class="pri rw" id="btnAddOwn">＋ 新增負責人</button>
     </div>
     <div class="tblwrap"><table>
       <thead><tr><th>名稱</th><th>代號</th><th>GitHub repo</th><th>聯絡方式</th><th>token 到期日</th><th>狀態</th><th>帳號</th><th>VM</th><th>同步紀錄</th><th>備註</th><th></th></tr></thead>
       <tbody id="ownBody"></tbody>
+    </table></div>
+  </div>
+  <div id="tab-rec" hidden>
+    <div class="mute" style="font-size:12px;margin-bottom:8px">負責人在網站上填寫的紀錄，內容為各負責人最後一次「發佈並同步」時的版本；只能查看，不能修改。</div>
+    <div class="bar">
+      <input id="qRec" type="search" placeholder="搜尋負責人、VM、帳號、對象、使用者…" style="width:260px">
+      <select id="fRecOwner"></select>
+      <select id="fRecSt"><option value="">全部狀態</option><option value="on">分享中／使用中</option><option value="end">已收回／已停用</option></select>
+    </div>
+    <div class="bar ovsec"><b>分享紀錄</b><span class="mute" id="recShareCount"></span></div>
+    <div class="tblwrap"><table>
+      <thead><tr><th>負責人</th><th>VM</th><th>帳號</th><th>分享對象</th><th>分享日期</th><th>原因</th><th>狀態</th><th>備註</th><th>最後修改</th></tr></thead>
+      <tbody id="recShareBody"></tbody>
+    </table></div>
+    <div class="bar ovsec" style="margin-top:16px"><b>自建帳號</b><span class="mute" id="recCrCount"></span></div>
+    <div class="tblwrap"><table>
+      <thead><tr><th>負責人</th><th>VM</th><th>帳號</th><th>權限</th><th>使用者</th><th>建立日期</th><th>用途</th><th>狀態</th><th>備註</th><th>最後修改</th></tr></thead>
+      <tbody id="recCrBody"></tbody>
     </table></div>
   </div>
 </main>
@@ -733,6 +753,8 @@ function clean(d) {
   if (out.log.length > 3000) out.log = out.log.slice(-3000);
   // 負責人同步回來的紀錄：{負責人 id: {at 紀錄最後有變化的同步時間, shares 分享紀錄, created 自建帳號}}；管理員只能查看
   if (isObj(d.records)) for (const k in d.records) { const r = d.records[k]; if (isObj(r)) out.records[k] = { at: dateOr(r.at), ...cleanRecords(r) }; }
+  // MIS 資料是管理員發佈的副本，保留發佈時間供畫面顯示；管理員資料沒有這個欄位
+  if (dateOr(d.published)) out.published = dateOr(d.published);
   return out;
 }
 /** VM 的登入帳號：[{id, u 帳號, p 密碼, oid 負責人 id, o 舊版自由輸入的負責人名稱（尚未對應）}]
@@ -844,7 +866,7 @@ function problems(S, A) {
 let S = clean({}), A = new Map();
 const ui = { tab: "vm", sel: "" };
 ui.accOwner = "*";
-try { const t = localStorage.getItem("eas-vm-ip:tab"); ui.tab = ["ip", "acc", "own"].includes(t) ? t : "vm"; } catch (e) {}
+try { const t = localStorage.getItem("eas-vm-ip:tab"); ui.tab = ["ip", "acc", "own", "rec"].includes(t) ? t : "vm"; } catch (e) {}
 const hostName = id => (S.hosts.find(h => h.id === id) || { n: "?" }).n;
 
 /* 資料來源：有設定 GitHub 連線（token 存在這台電腦的瀏覽器）就讀寫 GitHub repo，否則用本機資料夾。
@@ -862,19 +884,23 @@ function ghConfig() {
   } catch (e) { return null; }
 }
 const GH = ghConfig();
+/** MIS：讀取管理員發佈的 eas-vm-mis（不含密碼），所有畫面唯讀 */
+const RO = !!GH && GH.role === "mis";
+if (RO) document.body.classList.add("ro");
 const storeOpts = { fileName: "data.json", defaults: () => ({ v: 1 }), clean, pretty: true, onChange: st => { S = st; A = analyze(S); render(); }, onStatus };
-/** 非管理員（或還沒辨識角色）時使用：不讀取管理員資料，只顯示角色畫面 */
+/** 負責人（或還沒辨識角色）時使用：不讀取管理員資料，改由負責人畫面讀取自己的 repo */
 function roleStore() {
   return { init: initRole, action: openSettings, pick: openSettings, mutate: () => Promise.resolve(false), gh: true,
     get state() { return S; }, get status() { return "role"; }, get dir() { return null; } };
 }
 const store = !GH ? FolderStore.create({ ...storeOpts, appId: "eas-vm-ip-manager" })
-  : GH.role === "admin" && GH.repo ? GitHubStore.create({ ...storeOpts, owner: GH.owner, repo: GH.repo, token: GH.token })
+  : (GH.role === "admin" || RO) && GH.repo ? GitHubStore.create({ ...storeOpts, owner: GH.owner, repo: GH.repo, token: GH.token })
   : roleStore();
 
 /** 修改資料；msg 為 GitHub 模式下的 commit 訊息（本機資料夾模式忽略） */
 function edit(fn, msg) {
   const st = store.status;
+  if (RO) { toast("MIS 只能查看，不能修改資料", "bad"); return Promise.resolve(false); }
   if (st !== "ready" && st !== "readonly") { openSettings(); toast(GH ? "尚未連線 GitHub，請到設定檢查" : "請先在設定中連接資料夾", "bad"); return Promise.resolve(false); }
   if (savingN) { toast("正在儲存，請稍候"); return Promise.resolve(false); }
   // GitHub 寫入失敗時 mutate 會回傳 false，呼叫端就不會顯示「已儲存」
@@ -900,7 +926,7 @@ function onStatus(st, info) {
     const gm = $("#ghMsg");
     gm.textContent = info.message + (info.error ? "（" + info.error.name + "：" + info.error.message + "）" : "");
     gm.style.color = info.error ? "var(--bad)" : "var(--mute)";
-    pill.textContent = st === "ready" ? "☁ " + info.dir + t : "GitHub 未連線";
+    pill.textContent = st === "ready" ? (RO ? "MIS 唯讀 · " : "☁ ") + info.dir + t : "GitHub 未連線";
     pill.className = "pill " + (st === "ready" ? "ok" : "bad");
     if (info.error && st === "ready") toast(info.message + "：" + info.error.message, "bad");
     if (st === "ready" && prevSt && prevSt !== "ready" && $("#setDlg").open) $("#setDlg").close();
@@ -948,7 +974,11 @@ function render() {
   $("#tab-ip").hidden = ui.tab !== "ip";
   $("#tab-acc").hidden = ui.tab !== "acc";
   $("#tab-own").hidden = ui.tab !== "own";
-  $("#emptyAlert").hidden = S.vms.length > 0;
+  $("#tab-rec").hidden = ui.tab !== "rec";
+  $("#emptyAlert").hidden = RO || S.vms.length > 0;
+  const note = $("#roNote");
+  note.hidden = !RO;
+  if (RO) note.textContent = S.published ? "MIS 唯讀檢視：資料為管理員於 " + S.published + " 發佈的版本，不含任何密碼。" : "管理員還沒有發佈資料給 MIS。發佈後這個畫面會自動更新。";
   const probs = problems(S, A);
   const nBad = probs.filter(p => p[0] === "bad").length;
   $("#ipBadge").replaceChildren(nBad ? el("span", { class: "badge", text: nBad }) : "");
@@ -956,7 +986,8 @@ function render() {
   renderIp(probs);
   renderAcc();
   renderOwn();
-  const nOwn = ownerAlerts();
+  renderRec();
+  const nOwn = RO ? 0 : ownerAlerts();
   $("#ownBadge").replaceChildren(nOwn ? el("span", { class: "badge", text: nOwn }) : "");
 }
 const vmSt = v => v.off ? ["已下架 " + v.off, "s-released"] : v.on ? ["上線", "s-used"] : ["關機", "s-stopped"];
@@ -991,16 +1022,16 @@ function renderVm() {
   body.replaceChildren(...list.map(v => {
     const st = vmSt(v), nAcc = (v.acc || []).length;
     const conflict = v.ip && !v.off && stOf(A, v.ip) === "conflict";
-    return el("tr", { class: v.off ? "retired" : "", ondblclick: () => openVm(v.id) },
+    return el("tr", { class: v.off ? "retired" : "", ondblclick: RO ? null : () => openVm(v.id) },
       el("td", { text: hostName(v.h) }), el("td", { text: v.q || "" }),
       el("td", { text: v.n, title: v.note || "" }),
       el("td", { class: conflict ? "warnip" : "", text: (v.ip || "—") + (conflict ? " ⚠衝突" : "") }),
       el("td", null, el("span", { class: "tag " + st[1], text: st[0] })),
       el("td", { class: "num", text: v.cpu ?? "" }), el("td", { class: "num", text: v.mem != null ? v.mem + " GiB" : "" }),
       el("td", { text: v.tag || "" }), el("td", { text: v.lv || "" }), el("td", { text: yn(v.px) }), el("td", { text: yn(v.edr) }),
-      el("td", { class: "act" }, el("button", { class: "sm", text: "編輯", onclick: () => openVm(v.id) }),
+      el("td", { class: "act" }, !RO && [el("button", { class: "sm", text: "編輯", onclick: () => openVm(v.id) }),
         " ", el("button", { class: "sm", text: "帳號管理" + (nAcc ? " (" + nAcc + ")" : ""), onclick: () => openAcc(v.id) }),
-        !v.off && " ", !v.off && el("button", { class: "sm danger", text: "下架", onclick: () => retireVm(v.id) })));
+        !v.off && " ", !v.off && el("button", { class: "sm danger", text: "下架", onclick: () => retireVm(v.id) })]));
   }));
 }
 
@@ -1056,6 +1087,8 @@ function renderDetail() {
   kids.push(kv);
 
   const acts = el("div", { class: "acts" });
+  if (RO) { if (r.st === "applied") acts.append(el("button", { text: "複製申請文字", onclick: () => copyText(applyText(ip, r.rec)) })); }
+  else {
   if (isFree(r.st) || r.st === "cool") {
     acts.append(el("button", { class: "pri", text: "申請此 IP", onclick: () => openApply(ip) }),
       el("button", { text: "設為保留", onclick: () => reserveIp(ip) }),
@@ -1067,6 +1100,7 @@ function renderDetail() {
   if (r.st === "reserved") acts.append(el("button", { text: "建立 VM", onclick: () => openVm(null, ip) }), el("button", { class: "danger", text: "取消保留", onclick: () => dropRec(ip, "unreserve") }));
   r.occ.filter(o => o.k === "vm").forEach(o => acts.append(el("button", { text: "開啟 " + o.o.n, onclick: () => openVm(o.o.id) }),
     el("button", { class: "danger", text: "下架並釋放", onclick: () => retireVm(o.o.id) })));
+  }
   kids.push(acts);
 
   const hist = S.log.filter(l => l.ip === ip).reverse();
@@ -1079,6 +1113,7 @@ function renderDetail() {
 /* ---------- VM 編輯 ---------- */
 const vmForm = $("#vmForm");
 function openVm(id, presetIp) {
+  if (RO) return;
   const v = id ? S.vms.find(x => x.id === id) : null;
   if (id && !v) return toast("找不到這台 VM（可能已被其他電腦刪除）", "bad");
   const f = vmForm;
@@ -1142,6 +1177,7 @@ vmForm.addEventListener("submit", e => {
   }).then(ok => { if (ok) { $("#vmDlg").close(); toast("已儲存"); } });
 });
 function retireVm(id) {
+  if (RO) return;
   const v = S.vms.find(x => x.id === id);
   if (!v || v.off) return;
   if (!confirm("確定下架「" + v.n + "」？" + (v.ip ? "\nIP " + v.ip + " 會標記為釋放（保留歷史紀錄）。" : ""))) return;
@@ -1197,6 +1233,7 @@ function ownerOptions(a) {
 }
 let accDraft = [], accVm = "";
 function openAcc(id) {
+  if (RO) return;
   const v = S.vms.find(x => x.id === id);
   if (!v) return toast("找不到這台 VM（可能已被其他電腦刪除）", "bad");
   accVm = id;
@@ -1325,12 +1362,12 @@ function renderAcc() {
     const st = vmSt(v);
     return el("tr", null,
       el("td", { class: a.o && !a.oid ? "warnt" : "", text: ownerName(a) }), el("td", { text: a.u }),
-      el("td", null, el("span", { class: "pw", text: a.p ? (showPw ? a.p : "••••••") : "—" }),
+      el("td", { class: "pwcol" }, el("span", { class: "pw", text: a.p ? (showPw ? a.p : "••••••") : "—" }),
         dupSet.has(a.p) && el("span", { class: "warnip", text: " ⚠重複" }),
         a.p && " ", a.p && el("button", { class: "sm", text: "複製", onclick: () => copyText(a.p) })),
       el("td", { text: v.n }), el("td", { text: hostName(v.h) }), el("td", { text: v.ip || "—" }),
       el("td", null, el("span", { class: "tag " + st[1], text: st[0] })),
-      el("td", null, el("button", { class: "sm", text: "管理", onclick: () => openAcc(v.id) })));
+      el("td", null, !RO && el("button", { class: "sm", text: "管理", onclick: () => openAcc(v.id) })));
   }) : [el("tr", null, el("td", { colspan: 8, class: "empty", text: rows.length ? "沒有符合的帳號" : "還沒有任何帳號" }))]));
 }
 /* ---------- 負責人清單 ---------- */
@@ -1360,7 +1397,7 @@ function ownerAlerts() {
   return legacyNames().size + S.owners.filter(o => !o.off && o.exp && -daysSince(o.exp) <= 30).length;
 }
 function renderOwn() {
-  const legacy = legacyNames(), box = $("#ownMap");
+  const legacy = RO ? new Map() : legacyNames(), box = $("#ownMap");
   box.hidden = !legacy.size;
   box.replaceChildren(...(legacy.size ? [
     el("b", { text: "有 " + legacy.size + " 個負責人名稱尚未對應" }),
@@ -1378,17 +1415,18 @@ function renderOwn() {
   $("#ownCount").textContent = list.length + " 位";
   $("#ownBody").replaceChildren(...(list.length ? list.map(o => {
     const u = ownerUse(o.id), e = expInfo(o.exp);
-    return el("tr", { ondblclick: () => openOwner(o.id) },
+    return el("tr", { ondblclick: RO ? null : () => openOwner(o.id) },
       el("td", { text: o.n }), el("td", { text: o.code }), el("td", { class: "mute", text: OWNER_REPO + o.code }),
       el("td", { text: o.contact || "" }), el("td", { class: e[1], text: e[0] }),
       el("td", null, el("span", { class: "tag " + (o.off ? "s-released" : "s-used"), text: o.off ? "停用" : "啟用" })),
       el("td", { class: "num", text: u.n }), el("td", { class: "num", text: u.vms }),
       el("td", { class: "mute", text: recSummary(o.id) }),
       el("td", { class: "note", text: o.note || "", title: o.note || "" }),
-      el("td", { class: "act" }, el("button", { class: "sm", text: "編輯", onclick: () => openOwner(o.id) })));
+      el("td", { class: "act" }, !RO && el("button", { class: "sm", text: "編輯", onclick: () => openOwner(o.id) })));
   }) : [el("tr", null, el("td", { colspan: 11, class: "empty", text: S.owners.length ? "沒有符合的負責人" : "還沒有負責人，請按「＋ 新增負責人」" }))]));
 }
 function mapTo(name, oid) {
+  if (RO) return;
   const o = ownerById(oid);
   if (!o || !confirm("把「" + name + "」的 " + (legacyNames().get(name) || 0) + " 個帳號，對應到負責人「" + o.n + "（" + o.code + "）」？")) return;
   edit(st => mapLegacy(st, name, oid)).then(ok => { if (ok) toast("已對應到 " + o.n); });
@@ -1397,6 +1435,7 @@ let ownEdit = "", ownMapName = "";
 const ownForm = $("#ownForm");
 /** 開啟負責人視窗；legacy 為要一併對應的舊名稱（從「新增為負責人」進來時） */
 function openOwner(id, legacy) {
+  if (RO) return;
   const o = id ? ownerById(id) : null;
   if (id && !o) return toast("找不到這位負責人（可能已被其他電腦刪除）", "bad");
   const f = ownForm;
@@ -1462,6 +1501,35 @@ $("#btnOwnDel").onclick = () => {
 $("#btnAddOwn").onclick = () => openOwner(null);
 $("#qOwn").oninput = renderOwn;
 $("#fOwnShow").onchange = renderOwn;
+
+/* ---------- 負責人紀錄分頁（管理員、MIS 共用，只能查看） ---------- */
+function renderRec() {
+  const { shares, created } = allRecords();
+  const fo = $("#fRecOwner"), cur = fo.value;
+  const names = [...new Set([...shares, ...created].map(x => x.o))].sort((x, y) => x.localeCompare(y));
+  fo.replaceChildren(el("option", { value: "", text: "全部負責人" }), ...names.map(n => el("option", { value: n, text: n })));
+  fo.value = names.includes(cur) ? cur : "";
+  const q = $("#qRec").value.trim().toLowerCase(), st = $("#fRecSt").value;
+  const pick = (list, end, keys) => list.filter(x => (!fo.value || x.o === fo.value) && (!st || (st === "end") === !!x.r[end]) &&
+    (!q || [x.o, x.vm, x.u, ...keys.map(k => x.r[k])].some(s => s && s.toLowerCase().includes(q))))
+    .sort((x, y) => (y.r.date || "").localeCompare(x.r.date || "") || x.o.localeCompare(y.o));
+  const note = s => el("td", { class: "note", text: s || "", title: s || "" });
+  const sh = pick(shares, "revoked", ["to", "reason", "note"]);
+  $("#recShareCount").textContent = sh.length + " 筆（分享中 " + sh.filter(x => !x.r.revoked).length + "）";
+  $("#recShareBody").replaceChildren(...(sh.length ? sh.map(({ o, vm, u, r }) => el("tr", null,
+    el("td", { text: o }), el("td", { text: vm }), el("td", { text: u }), el("td", { text: r.to || "" }), el("td", { text: r.date || "" }), note(r.reason),
+    el("td", null, stTag(r.revoked, "分享中", "已收回")), note(r.note), el("td", { class: "mute", text: r.updated || "" })))
+    : [el("tr", null, el("td", { colspan: 9, class: "empty", text: shares.length ? "沒有符合的紀錄" : "還沒有同步回來的分享紀錄" }))]));
+  const cr = pick(created, "disabled", ["perm", "user", "purpose", "note"]);
+  $("#recCrCount").textContent = cr.length + " 筆（使用中 " + cr.filter(x => !x.r.disabled).length + "）";
+  $("#recCrBody").replaceChildren(...(cr.length ? cr.map(({ o, vm, u, r }) => el("tr", null,
+    el("td", { text: o }), el("td", { text: vm }), el("td", { text: u }), el("td", { text: r.perm || "" }), el("td", { text: r.user || "" }), el("td", { text: r.date || "" }),
+    note(r.purpose), el("td", null, stTag(r.disabled, "使用中", "已停用")), note(r.note), el("td", { class: "mute", text: r.updated || "" })))
+    : [el("tr", null, el("td", { colspan: 10, class: "empty", text: created.length ? "沒有符合的紀錄" : "還沒有同步回來的自建帳號" }))]));
+}
+$("#qRec").oninput = renderRec;
+$("#fRecOwner").onchange = renderRec;
+$("#fRecSt").onchange = renderRec;
 
 /* ---------- 發佈並同步：管理員 → 各負責人、MIS；負責人的紀錄 → 管理員 ---------- */
 /** 負責人分頁的「同步紀錄」欄 */
@@ -1621,6 +1689,19 @@ const loadExcelJS = () => loadLib(EXCELJS_URL, "ExcelJS");
 const DELETED_OWNER = "（已刪除的負責人）";
 /** 稽核用的負責人名稱：清單中的負責人、尚未對應的舊名稱，空白＝VM 管理人 */
 const auditOwner = a => a.oid ? (ownerById(a.oid) || { n: DELETED_OWNER }).n : a.o || ADMIN;
+/** 所有負責人同步回來的紀錄：[{o 負責人, vm VM 名稱, u 帳號, r 原始紀錄}]
+    VM／帳號用目前的名稱；已不在清單中（帳號改給別人、VM 下架）時用登記當時的名稱 */
+function allRecords() {
+  const accById = new Map(S.vms.flatMap(v => (v.acc || []).map(a => [a.id, { v, a }])));
+  const shares = [], created = [];
+  for (const id in S.records) {
+    const r = S.records[id], o = (ownerById(id) || { n: DELETED_OWNER }).n;
+    r.shares.forEach(s => { const x = accById.get(s.acc); shares.push({ o, vm: x ? x.v.n : s.vmn || "", u: x ? x.a.u : s.u || "", r: s }); });
+    // 舊版發佈的資料沒有 VM id，負責人當時登記的 vm 會是 VM 名稱
+    r.created.forEach(c => { const v = S.vms.find(v => v.id === c.vm || v.n === c.vm); created.push({ o, vm: v ? v.n : c.vmn || "", u: c.u || "", r: c }); });
+  }
+  return { shares, created };
+}
 /* Excel 共用：標題列藍底白字、凍結、可篩選、細框線 */
 const XL_LINE = { style: "thin", color: { argb: "FFD0D5DD" } };
 const XL_BORDER = { top: XL_LINE, left: XL_LINE, bottom: XL_LINE, right: XL_LINE };
@@ -1666,14 +1747,7 @@ async function buildAuditWorkbook() {
   const sheet = (name, cols, rows) => xlLock(xlTable(wb, name, cols, rows));
   // 帳號清單只列未下架的 VM；紀錄全部保留（含已收回、已停用、VM 已下架）
   const accs = S.vms.filter(v => !v.off).flatMap(v => (v.acc || []).map(a => ({ o: auditOwner(a), vm: v.n, v, a })));
-  const accById = new Map(S.vms.flatMap(v => (v.acc || []).map(a => [a.id, { v, a }])));
-  const shares = [], created = [];
-  for (const id in S.records) {
-    const r = S.records[id], o = (ownerById(id) || { n: DELETED_OWNER }).n;
-    r.shares.forEach(s => { const x = accById.get(s.acc); shares.push({ o, vm: x ? x.v.n : s.vmn || "", u: x ? x.a.u : s.u || "", r: s }); });
-    // 舊版發佈的資料沒有 VM id，負責人當時登記的 vm 會是 VM 名稱
-    r.created.forEach(c => { const v = S.vms.find(v => v.id === c.vm || v.n === c.vm); created.push({ o, vm: v ? v.n : c.vmn || "", r: c }); });
-  }
+  const { shares, created } = allRecords();
   // 依負責人（VM 管理人排最後）、VM、日期排序
   const ownerOrder = (x, y) => (x === ADMIN) - (y === ADMIN) || x.localeCompare(y);
   const order = (x, y) => ownerOrder(x.o, y.o) || x.vm.localeCompare(y.vm) || ((x.r && x.r.date) || "").localeCompare((y.r && y.r.date) || "");
@@ -1725,6 +1799,7 @@ $("#fAccOwner").onchange = e => { ui.accOwner = e.target.value; renderAcc(); };
 /* ---------- IP 申請 / 保留 ---------- */
 const apForm = $("#apForm");
 function openApply(ip, editing) {
+  if (RO) return;
   const f = apForm, r = editing ? S.ipr[ip] : null;
   f.dataset.edit = editing ? ip : "";
   f.ip.value = ip || nextFree(S, A); f.ip.readOnly = !!editing;
@@ -1780,6 +1855,7 @@ apForm.addEventListener("submit", e => {
   });
 });
 function reserveIp(ip) {
+  if (RO) return;
   const why = prompt("保留 " + ip + " 的原因（例如閘道、印表機、MIS 保留）：", "");
   if (why == null) return;
   let err = "";
@@ -1791,6 +1867,7 @@ function reserveIp(ip) {
   }).then(ok => { if (ok) toast(err || "已保留 " + ip, err ? "bad" : ""); });
 }
 function dropRec(ip, a) {
+  if (RO) return;
   if (!confirm((a === "cancel" ? "取消 " + ip + " 的申請？" : "取消 " + ip + " 的保留？"))) return;
   edit(st => { const r = st.ipr[ip]; if (!r) return; logIt(st, ip, a, r.use || r.who || ""); delete st.ipr[ip]; }).then(ok => { if (ok) toast("已取消"); });
 }
@@ -1872,15 +1949,10 @@ $("#btnGhConn").onclick = () => {
 };
 /** 非管理員角色開啟網頁：舊設定沒有角色就先辨識，否則顯示角色畫面 */
 async function initRole() {
-  if (!GH.role) { $("#pill").textContent = "確認 token 權限中…"; openSettings(); return connectToken(GH.token); }
+  // 舊設定沒有角色（或設定不完整）時，重新向 GitHub 確認 token 的權限
+  if (GH.role !== "owner") { $("#pill").textContent = "確認 token 權限中…"; openSettings(); return connectToken(GH.token); }
   document.body.classList.add("role-limited");
-  if (GH.role === "owner") return startOwner();
-  const who = ROLE_TEXT[GH.role];
-  $("#roleBox").hidden = false;
-  $("#roleBox").replaceChildren(el("h2", { text: "已連線：" + who }),
-    el("p", { class: "mute", text: "MIS 畫面還在建置中。完成後，這裡會顯示所有 VM、IP 與帳號資料（不含密碼），只能查看。" }));
-  $("#pill").textContent = who; $("#pill").className = "pill ok";
-  $("#ghText").textContent = "已連線：" + who;
+  startOwner();
 }
 
 /* ---------- 負責人畫面 ----------
