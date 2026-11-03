@@ -272,11 +272,10 @@ section.set h3{margin:0 0 8px;font-size:14px}
     <h3>GitHub 連線</h3>
     <div class="connbox">
       <div id="ghText">尚未設定 GitHub 連線</div>
-      <!-- 用標準的登入表單（名稱＋密碼欄、送出），瀏覽器或密碼管理員才能儲存並自動填入 token -->
+      <!-- 用表單（密碼欄＋送出），瀏覽器或密碼管理員才能儲存並自動填入 token -->
       <form id="ghForm">
         <div class="fg" style="margin-top:8px">
-          <label>名稱（給密碼管理員辨識用）<input id="ghUser" name="username" autocomplete="username" placeholder="例如：管理員、Neo"></label>
-          <label>token<input id="ghToken" name="password" type="password" autocomplete="current-password"></label>
+          <label class="full">token<input id="ghToken" name="password" type="password" autocomplete="current-password"></label>
         </div>
         <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
           <button type="submit" class="pri" id="btnGhConn">連線</button>
@@ -289,7 +288,7 @@ section.set h3{margin:0 0 8px;font-size:14px}
       <li>連線時會依 token 的權限自動判斷身分（管理員、MIS、負責人），並顯示對應的畫面。</li>
       <li>管理員的資料直接讀寫 GitHub 私有 repo 中的 data.json，每次儲存都是一筆 commit。</li>
       <li>token 只存在這台電腦的瀏覽器，不會寫入任何 repo；在公用電腦上用完請按「中斷連線」。</li>
-      <li>可以讓瀏覽器或密碼管理員儲存 token（第一次連線時會詢問是否儲存），之後就能自動填入；「名稱」只是讓你區分多組 token，系統不會用到。</li>
+      <li>可以讓瀏覽器或密碼管理員儲存 token（第一次連線時會詢問是否儲存），之後就能自動填入。</li>
       <li>沒有設定 GitHub 連線時，改用下方的本機資料夾。</li>
     </ul>
   </section>
