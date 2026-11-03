@@ -1263,7 +1263,7 @@ function openAcc(id) {
   if (!accDraft.length) accDraft.push({ id: uid(), u: "", p: "", oid: "" });
   $("#accTitle").textContent = "帳號管理：" + v.n;
   $("#accSub").textContent = [hostName(v.h), v.q, v.ip, v.off && "已下架"].filter(Boolean).join(" · ");
-  $("#accDlgShow").checked = false;
+  $("#accDlgShow").checked = true;   // 預設顯示密碼，方便確認貼上的內容
   renderAccRows();
   $("#accDlg").showModal();
 }
@@ -2138,7 +2138,7 @@ function openPw(accId) {
   pwAcc = x;
   $("#pwTarget").textContent = x.v.name + " / " + x.a.u;
   pwForm.u.value = ch ? ch.u : x.a.u; pwForm.p.value = ch ? ch.p : x.a.p;
-  pwForm.p.type = "password"; $("#btnPwShow").textContent = "顯示";
+  pwForm.p.type = "text"; $("#btnPwShow").textContent = "隱藏";   // 預設顯示密碼，方便確認貼上的內容
   $("#pwDlg").showModal();
 }
 $("#btnPwGen").onclick = genAndCopy;
