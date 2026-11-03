@@ -611,13 +611,19 @@ section.set h3{margin:0 0 8px;font-size:14px}
       queue = queue.then(async () => {
         if (!connected) { emit("尚未連線 GitHub"); return false; }
         for (let tries = 1; ; tries++) {
+          let before = null;
           try {
             await readFile();
-            fn(state); state = clean(state); onChange(state);
+            // 在副本上修改：寫入失敗時還原，重試時才不會把同一筆修改套用兩次（例如新增出兩筆一樣的紀錄）
+            before = state;
+            const draft = clean(JSON.parse(JSON.stringify(state)));
+            fn(draft); state = clean(draft); onChange(state);
             await writeFile(msg);
             return true;
           } catch (e) {
-            if (e && (e.status === 409 || e.status === 422) && tries < 3) { etag = null; continue; }   // 別人剛好也存了：讀最新再套用一次
+            if (before) state = before;
+            // 別人剛好也存了：強制重新讀取最新內容（不沿用快取）再套用一次
+            if (e && (e.status === 409 || e.status === 422) && tries < 3) { etag = null; sha = null; continue; }
             emit("沒有存到 GitHub", e);
             await reload();
             return false;
@@ -870,8 +876,18 @@ const store = !GH ? FolderStore.create({ ...storeOpts, appId: "eas-vm-ip-manager
 function edit(fn, msg) {
   const st = store.status;
   if (st !== "ready" && st !== "readonly") { openSettings(); toast(GH ? "尚未連線 GitHub，請到設定檢查" : "請先在設定中連接資料夾", "bad"); return Promise.resolve(false); }
+  if (savingN) { toast("正在儲存，請稍候"); return Promise.resolve(false); }
   // GitHub 寫入失敗時 mutate 會回傳 false，呼叫端就不會顯示「已儲存」
-  return store.mutate(fn, msg).then(r => r !== false);
+  return guardSave(store.mutate(fn, msg).then(r => r !== false));
+}
+/** 儲存期間停用開啟中視窗的按鈕：寫入 GitHub 要一兩秒，避免重複按「儲存」新增出兩筆一樣的資料
+    （送出按鈕停用時，在輸入框按 Enter 也不會送出） */
+let savingN = 0;
+function guardSave(p) {
+  if (!savingN++) document.querySelectorAll("dialog[open] button:not(:disabled)").forEach(b => { b.disabled = true; b.dataset.saving = "1"; });
+  return p.finally(() => {
+    if (!--savingN) document.querySelectorAll("button[data-saving]").forEach(b => { b.disabled = false; delete b.dataset.saving; });
+  });
 }
 
 /* ---------- 連線狀態 ---------- */
@@ -1891,7 +1907,8 @@ function startOwner() {
 /** 修改 records.json；commit 訊息註明是哪位負責人（所有 token 都在同一個 GitHub 帳號下，作者看不出是誰） */
 function recEdit(fn) {
   if (!recStore || recStore.status !== "ready") { openSettings(); toast("尚未連線 GitHub，請到設定檢查", "bad"); return Promise.resolve(false); }
-  return recStore.mutate(fn, "負責人更新紀錄：" + (OD.owner.name || GH.repo)).then(r => r !== false);
+  if (savingN) { toast("正在儲存，請稍候"); return Promise.resolve(false); }
+  return guardSave(recStore.mutate(fn, "負責人更新紀錄：" + (OD.owner.name || GH.repo)).then(r => r !== false));
 }
 const ownAccs = () => OD.vms.flatMap(v => v.accounts.map(a => ({ v, a })));
 /** 紀錄對應的帳號／VM 名稱；已不在清單中（帳號改給別人、VM 下架）時用登記當時的名稱 */
