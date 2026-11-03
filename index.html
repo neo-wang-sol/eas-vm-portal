@@ -211,7 +211,6 @@ section.set h3{margin:0 0 8px;font-size:14px}
     <div class="bar">
       <select id="fAccShow"><option value="active">未下架的 VM</option><option value="all">全部 VM（含已下架）</option></select>
       <span class="mute" id="accNone"></span>
-      <span class="warnip" id="accDup"></span>
     </div>
     <div class="bar">
       <input id="qAcc" type="search" placeholder="搜尋帳號、負責人、VM、IP…" style="width:260px">
@@ -1273,7 +1272,7 @@ function renderAccRows() {
     el("input", { value: a.u || "", placeholder: "帳號", oninput: e => a.u = e.target.value }),
     el("span", { class: "pwcell" },
       el("input", { value: a.p || "", placeholder: "密碼", type: show ? "text" : "password", autocomplete: "new-password", class: "pw", oninput: e => a.p = e.target.value }),
-      el("button", { type: "button", class: "sm", text: "產生", title: "產生和其他帳號都不重複的隨機密碼", onclick: e => { a.p = uniquePassword(accVm); e.target.previousSibling.value = a.p; } })),
+      el("button", { type: "button", class: "sm", text: "產生", title: "產生 16 碼隨機密碼", onclick: e => { a.p = genPassword(); e.target.previousSibling.value = a.p; } })),
     el("select", { onchange: e => { const val = e.target.value; if (val.startsWith("legacy:")) { a.o = val.slice(7); a.oid = ""; } else { a.oid = val; a.o = ""; } } }, ...ownerOptions(a)),
     el("span", { class: "btns" },
       el("button", { type: "button", class: "sm", text: "複製密碼", onclick: () => a.p ? copyText(a.p) : toast("沒有密碼", "bad") }),
@@ -1289,35 +1288,11 @@ function genPassword(len = 16) {
   for (let i = c.length - 1; i > 0; i--) { const j = rnd(i + 1); [c[i], c[j]] = [c[j], c[i]]; }
   return c.join("");
 }
-/** 其他 VM 已使用的密碼：密碼 → 「VM / 帳號」 */
-function usedPasswords(st, exceptVm) {
-  const m = new Map();
-  st.vms.forEach(v => { if (v.id !== exceptVm) (v.acc || []).forEach(a => { if (a.p && !m.has(a.p)) m.set(a.p, v.n + " / " + a.u); }); });
-  return m;
-}
-/** 產生和所有 VM（含這台視窗中的其他列）都不重複的密碼 */
-function uniquePassword(vmId) {
-  const used = usedPasswords(S, vmId), draft = new Set(accDraft.map(a => a.p));
-  let p;
-  do p = genPassword(); while (used.has(p) || draft.has(p));
-  return p;
-}
-/** 檢查要儲存的帳號密碼是否和其他 VM 或彼此重複，回傳錯誤訊息 */
-function pwConflict(st, vmId, list) {
-  const used = usedPasswords(st, vmId), seen = new Map();
-  for (const a of list) {
-    if (!a.p) continue;
-    if (used.has(a.p)) return "「" + a.u + "」的密碼和 " + used.get(a.p) + " 重複，請按「產生」換一組";
-    if (seen.has(a.p)) return "「" + a.u + "」和「" + seen.get(a.p) + "」的密碼重複，請按「產生」換一組";
-    seen.set(a.p, a.u);
-  }
-  return "";
-}
 /** 快速新增常用帳號；gen 為 true 時自動產生密碼，否則密碼空白；會取代視窗中的空白列 */
 function quickAdd(u, focusOwner, gen = true) {
   const exist = accDraft.findIndex(a => (a.u || "").trim() === u);
   if (exist >= 0) { toast("這台 VM 已經有 " + u, "bad"); $("#accRows").children[exist].querySelector("input").focus(); return; }
-  const row = { id: uid(), u, p: gen ? uniquePassword(accVm) : "", oid: "" };
+  const row = { id: uid(), u, p: gen ? genPassword() : "", oid: "" };
   const blank = accDraft.findIndex(a => !a.u && !a.p && !a.oid && !a.o);
   if (blank >= 0) accDraft[blank] = row; else accDraft.push(row);
   renderAccRows();
@@ -1336,14 +1311,11 @@ $("#btnAccSave").onclick = () => {
   if (list.some(a => !a.u)) return toast("帳號不可空白", "bad");
   const dup = list.map(a => a.u).find((u, i, all) => all.indexOf(u) !== i);
   if (dup) return toast("同一台 VM 的帳號重複：" + dup, "bad");
-  const id = accVm, conflict = pwConflict(S, id, list);
-  if (conflict) return toast(conflict, "bad");
+  const id = accVm;
   let err = "";
   edit(st => {
     const v = st.vms.find(x => x.id === id);
     if (!v) { err = "這台 VM 已被刪除，無法儲存"; return; }
-    // 以最新檔案內容再檢查一次，避免其他電腦剛好存了相同密碼
-    if ((err = pwConflict(st, id, list))) return;
     v.acc = list;
   }).then(ok => {
     if (!ok) return;
@@ -1365,13 +1337,6 @@ function renderAcc() {
   const none = vms.filter(v => !(v.acc || []).length);
   $("#accNone").textContent = none.length ? "沒有任何帳號的 VM：" + none.length + " 台" : "";
   $("#accNone").title = none.map(v => v.n).join("\n");
-  // 重複使用的密碼（檢查所有 VM，含已下架）
-  const pwUse = new Map();
-  S.vms.forEach(v => (v.acc || []).forEach(a => { if (a.p) pwUse.set(a.p, [...(pwUse.get(a.p) || []), v.n + " / " + a.u]); }));
-  const dupPw = [...pwUse.entries()].filter(([, w]) => w.length > 1);
-  const dupSet = new Set(dupPw.map(([p]) => p));
-  $("#accDup").textContent = dupPw.length ? "⚠ 有 " + dupPw.length + " 組密碼重複使用" : "";
-  $("#accDup").title = dupPw.map(([, w]) => w.join("、")).join("\n");
   const fo = $("#fAccOwner");
   fo.replaceChildren(el("option", { value: "*", text: "全部負責人" }), ...owners.map(k => el("option", { value: k, text: ownerLabels.get(k) })));
   fo.value = ui.accOwner;
@@ -1386,7 +1351,6 @@ function renderAcc() {
     return el("tr", null,
       el("td", { class: a.o && !a.oid ? "warnt" : "", text: ownerName(a) }), el("td", { text: a.u }),
       el("td", { class: "pwcol" }, el("span", { class: "pw", text: a.p ? (showPw ? a.p : "••••••") : "—" }),
-        dupSet.has(a.p) && el("span", { class: "warnip", text: " ⚠重複" }),
         a.p && " ", a.p && el("button", { class: "sm", text: "複製", onclick: () => copyText(a.p) })),
       el("td", { text: v.n }), el("td", { text: hostName(v.h) }), el("td", { text: v.ip || "—" }),
       el("td", null, el("span", { class: "tag " + st[1], text: st[0] })),
