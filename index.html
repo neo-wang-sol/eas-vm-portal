@@ -2064,8 +2064,10 @@ function shareAcc(r) {
   const x = ownAccs().find(x => x.a.id === r.acc);
   return x ? { text: x.v.name + " / " + x.a.u } : { text: [r.vmn, r.u].filter(Boolean).join(" / ") || "（不明帳號）", gone: true };
 }
+/** 自建帳號紀錄對應的 VM；舊紀錄（VM id 加入發佈資料之前登記的）的 vm 存的是 VM 名稱，一併比對 */
+const recVm = r => OD.vms.find(v => v.id === r.vm || v.name === r.vm);
 function crVm(r) {
-  const v = OD.vms.find(v => v.id === r.vm);
+  const v = recVm(r);
   return v ? { text: v.name } : { text: r.vmn || "（不明 VM）", gone: true };
 }
 const goneTag = x => x.gone ? el("span", { class: "mute", text: "（已不在你的清單）" }) : "";
@@ -2084,7 +2086,7 @@ function renderOwner() {
   // 我的 VM 與帳號：VM 的欄位與「＋ 自建帳號」跨該 VM 的所有帳號列
   const show = $("#ovShowPw").checked, nAcc = ownAccs().length;
   const nShare = id => OR.shares.filter(r => r.acc === id && !r.revoked).length;
-  const nCr = id => OR.created.filter(r => r.vm === id && !r.disabled).length;
+  const nCr = id => OR.created.filter(r => !r.disabled && (recVm(r) || {}).id === id).length;
   const cnt = (n, t) => n ? el("span", { class: "mute", style: "font-size:12px", text: " " + t + " " + n }) : "";
   $("#ovCount").textContent = nAcc ? OD.vms.length + " 台 VM · " + nAcc + " 個帳號" : "";
   // 和管理員的 VM 清單相同排序：實體機 → IP → 名稱（沒有 IP 的排在該實體機最後）
@@ -2212,7 +2214,8 @@ function openCr(id, vmId) {
   const r = id ? OR.created.find(x => x.id === id) : null;
   if (id && !r) return toast("找不到這筆紀錄（可能已被刪除）", "bad");
   const f = crForm;
-  crEdit = id || ""; crVmId = r ? r.vm : vmId;
+  // 編輯舊紀錄時改用 VM id，儲存後就不再依賴名稱對應
+  crEdit = id || ""; crVmId = r ? (recVm(r) || { id: r.vm }).id : vmId;
   const v = OD.vms.find(v => v.id === crVmId);
   $("#crTarget").textContent = targetText(crVm(r || { vm: vmId })) + (v && v.ip ? "（" + v.ip + "）" : "");
   f.perm.replaceChildren(...PERM.map(p => el("option", { value: p, text: p })));
@@ -2234,7 +2237,7 @@ crForm.addEventListener("submit", e => {
   if (data.disabled && data.disabled < data.date) return toast("停用日期不能早於建立日期", "bad");
   const v = OD.vms.find(v => v.id === data.vm);
   if (v && v.accounts.some(a => a.u === data.u)) return toast("「" + data.u + "」是管理員發佈給你的帳號，不用登記為自建帳號", "bad");
-  const dup = OR.created.find(r => r.id !== crEdit && r.vm === data.vm && r.u === data.u && !r.disabled);
+  const dup = OR.created.find(r => r.id !== crEdit && (recVm(r) || { id: r.vm }).id === data.vm && r.u === data.u && !r.disabled);
   if (dup && !data.disabled) return toast("這台 VM 已經登記了使用中的「" + data.u + "」", "bad");
   recSave("created", crEdit, data, prev => ({ vmn: v ? v.name : prev && prev.vmn }), $("#crDlg"));
 });
