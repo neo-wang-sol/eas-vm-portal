@@ -38,7 +38,7 @@ th{background:#f8f9fb;font-weight:600;font-size:12px;color:var(--mute);position:
 tr.retired td{color:var(--mute);text-decoration:line-through}
 tr.retired td.act{text-decoration:none}
 #accDlg{width:min(900px,96vw)}
-.accrow{display:grid;grid-template-columns:1fr 1fr 1fr 210px;gap:6px;margin-bottom:6px;align-items:center}
+.accrow{display:grid;grid-template-columns:1fr 1fr 1fr 130px;gap:6px;margin-bottom:6px;align-items:center}
 .accrow.head span{font-size:12px;color:var(--mute)}
 .accrow .btns{display:flex;gap:4px}
 .pwcell{display:flex;gap:4px}
@@ -166,6 +166,7 @@ section.set h3{margin:0 0 8px;font-size:14px}
       </select>
       <span class="mute" id="vmCount"></span>
       <div class="grow"></div>
+      <button id="btnAudit" title="匯出 Excel：各負責人的帳號、分享紀錄、自建帳號，作為帳號管理的稽核依據（不含密碼）">匯出</button>
       <button id="btnVmCsv">匯出 CSV</button>
       <button class="pri" id="btnAddVm">＋ 新增 VM</button>
     </div>
@@ -1161,7 +1162,6 @@ $("#btnDelVm").onclick = () => {
 /* ---------- 帳號管理 ---------- */
 /** 負責人空白＝VM 管理人保留的帳號（系統不記錄管理人是誰） */
 const ADMIN = "VM 管理人";
-const ownerText = o => o || ADMIN;
 const ownerById = id => S.owners.find(o => o.id === id);
 const byName = (x, y) => x.n.localeCompare(y.n);
 /** 帳號負責人的分組鍵：""＝VM 管理人、"id:…"＝清單中的負責人、"legacy:…"＝尚未對應的舊名稱 */
@@ -1202,7 +1202,6 @@ function renderAccRows() {
     el("select", { onchange: e => { const val = e.target.value; if (val.startsWith("legacy:")) { a.o = val.slice(7); a.oid = ""; } else { a.oid = val; a.o = ""; } } }, ...ownerOptions(a)),
     el("span", { class: "btns" },
       el("button", { type: "button", class: "sm", text: "複製密碼", onclick: () => a.p ? copyText(a.p) : toast("沒有密碼", "bad") }),
-      el("button", { type: "button", class: "sm", text: "匯出 Excel", title: "匯出這個帳號給負責人，含分享紀錄與自建帳號的填寫表", onclick: () => exportAccount(accVm, a) }),
       el("button", { type: "button", class: "sm danger", text: "刪除", onclick: () => { accDraft.splice(i, 1); renderAccRows(); } })))));
   if (!accDraft.length) box.append(el("div", { class: "mute", style: "font-size:12px;padding:6px 0", text: "這台 VM 沒有帳號（儲存後生效）" }));
 }
@@ -1586,12 +1585,10 @@ $("#btnPub").onclick = () => publishAndSync();
 $("#btnPubRetry").onclick = () => publishAndSync(pubFailed.slice());
 $("#btnPubClose").onclick = () => $("#pubDlg").close();
 
-/* ---------- 匯出負責人帳號 Excel（只匯出，不寫回系統） ---------- */
+/* ---------- 匯出帳號管理紀錄 Excel（只匯出，不寫回系統；不含密碼） ----------
+   稽核「有沒有做帳號管理」時提出的依據：各負責人的帳號、分享給誰、自建了哪些帳號 */
 const EXCELJS_URL = "https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js";
-// ExcelJS 不支援檔案加密，開啟密碼改由 xlsx-populate 加上（Excel 標準的 AES 加密）
-const XLSXPOP_URL = "https://cdn.jsdelivr.net/npm/xlsx-populate@1.21.0/browser/xlsx-populate.min.js";
 const PERM = ["管理員", "一般", "唯讀"];
-const FILL_ROWS = 100;
 const libP = {};
 /** 只在匯出時才從 CDN 載入函式庫，其他功能離線也能用 */
 function loadLib(url, name) {
@@ -1605,115 +1602,95 @@ function loadLib(url, name) {
   }));
 }
 const loadExcelJS = () => loadLib(EXCELJS_URL, "ExcelJS");
-/** 為 xlsx 加上開啟密碼 */
-async function encryptXlsx(buf, password) {
-  const XP = await loadLib(XLSXPOP_URL, "XlsxPopulate");
-  return (await XP.fromDataAsync(buf)).outputAsync({ type: "arraybuffer", password });
-}
-/** 產生給負責人的 Excel；ow 為負責人，rows 為要匯出的 [{v, a}]
-    分享紀錄、自建帳號會帶入最後一次「發佈並同步」讀回的紀錄 */
-async function buildOwnerWorkbook(ow, rows) {
+const DELETED_OWNER = "（已刪除的負責人）";
+/** 稽核用的負責人名稱：清單中的負責人、尚未對應的舊名稱，空白＝VM 管理人 */
+const auditOwner = a => a.oid ? (ownerById(a.oid) || { n: DELETED_OWNER }).n : a.o || ADMIN;
+/** 產生帳號管理紀錄 Excel：總覽、帳號清單（未下架的 VM）、分享紀錄、自建帳號
+    紀錄來自各負責人最後一次「發佈並同步」讀回的內容 */
+async function buildAuditWorkbook() {
   const ExcelJS = await loadExcelJS();
-  const who = ownerText(ow.n), date = today();
-  const vmLabel = v => v.n + (v.ip ? "（" + v.ip + "）" : "");
-  const vms = [...new Map(rows.map(r => [r.v.id, r.v])).values()];
-  const rec = S.records[ow.id] || { shares: [], created: [] };
-  const accIds = new Set(rows.map(r => r.a.id));
-  // 舊版發佈的資料沒有 VM id，負責人當時登記的 vm 會是 VM 名稱
-  const shares = rec.shares.filter(r => accIds.has(r.acc)).sort((x, y) => (x.date || "").localeCompare(y.date || ""));
-  const created = rec.created.filter(r => vms.some(v => r.vm === v.id || r.vm === v.n)).sort((x, y) => (x.date || "").localeCompare(y.date || ""));
   const wb = new ExcelJS.Workbook();
   wb.creator = "VM 與 IP 管理"; wb.created = new Date();
   const line = { style: "thin", color: { argb: "FFD0D5DD" } };
   const border = { top: line, left: line, bottom: line, right: line };
-  const solid = argb => ({ type: "pattern", pattern: "solid", fgColor: { argb } });
-  /** 建立表格型工作表：標題列上色並凍結；inputRows > 0 時預留可填寫的空白列 */
-  function sheet(name, cols, inputRows) {
+  const headStyle = c => { c.font = { bold: true, color: { argb: "FFFFFFFF" } }; c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF2457D6" } }; c.border = border; c.alignment = { vertical: "middle" }; };
+  const toDate = s => /^\d{4}-\d{2}-\d{2}$/.test(s || "") ? new Date(Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10))) : (s || "");
+  const lock = ws => ws.protect("", { selectLockedCells: true, selectUnlockedCells: true, formatColumns: true, autoFilter: true, sort: true });
+  /** 表格型工作表：標題列上色、凍結、可篩選；date 欄以日期格式顯示；鎖定避免誤改 */
+  async function sheet(name, cols, rows) {
     const ws = wb.addWorksheet(name, { views: [{ state: "frozen", ySplit: 1 }] });
     ws.columns = cols.map(c => ({ header: c.h, key: c.h, width: c.w }));
-    ws.getRow(1).eachCell(c => { c.font = { bold: true, color: { argb: "FFFFFFFF" } }; c.fill = solid("FF2457D6"); c.border = border; c.alignment = { vertical: "middle" }; });
+    ws.getRow(1).eachCell(headStyle);
     ws.getRow(1).height = 22;
-    for (let r = 2; r <= inputRows + 1; r++) cols.forEach((c, i) => {
-      const cell = ws.getCell(r, i + 1);
-      cell.fill = solid("FFFFF8DC"); cell.border = border;
-      if (c.date) {
-        cell.numFmt = "yyyy-mm-dd";
-        cell.dataValidation = { type: "date", operator: "greaterThan", allowBlank: true, formulae: [new Date(Date.UTC(2000, 0, 1))], showErrorMessage: true, errorTitle: "日期格式", error: "請輸入日期，例如 " + date };
-      }
-      if (c.list) cell.dataValidation = { type: "list", allowBlank: true, formulae: [c.list], showErrorMessage: true, errorTitle: "請從清單選擇", error: "請從下拉選單選擇" };
+    rows.forEach(vals => {
+      const row = ws.addRow(vals.map((x, i) => cols[i].date ? toDate(x) : x == null ? "" : x));
+      cols.forEach((c, i) => { const cell = row.getCell(i + 1); cell.border = border; cell.numFmt = c.date ? "yyyy-mm-dd" : "@"; });
     });
-    return ws;
+    ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: cols.length } };
+    await lock(ws);
   }
+  // 帳號清單只列未下架的 VM；紀錄全部保留（含已收回、已停用、VM 已下架）
+  const accs = S.vms.filter(v => !v.off).flatMap(v => (v.acc || []).map(a => ({ o: auditOwner(a), vm: v.n, v, a })));
+  const accById = new Map(S.vms.flatMap(v => (v.acc || []).map(a => [a.id, { v, a }])));
+  const shares = [], created = [];
+  for (const id in S.records) {
+    const r = S.records[id], o = (ownerById(id) || { n: DELETED_OWNER }).n;
+    r.shares.forEach(s => { const x = accById.get(s.acc); shares.push({ o, vm: x ? x.v.n : s.vmn || "", u: x ? x.a.u : s.u || "", r: s }); });
+    // 舊版發佈的資料沒有 VM id，負責人當時登記的 vm 會是 VM 名稱
+    r.created.forEach(c => { const v = S.vms.find(v => v.id === c.vm || v.n === c.vm); created.push({ o, vm: v ? v.n : c.vmn || "", r: c }); });
+  }
+  // 依負責人（VM 管理人排最後）、VM、日期排序
+  const ownerOrder = (x, y) => (x === ADMIN) - (y === ADMIN) || x.localeCompare(y);
+  const order = (x, y) => ownerOrder(x.o, y.o) || x.vm.localeCompare(y.vm) || ((x.r && x.r.date) || "").localeCompare((y.r && y.r.date) || "");
+  accs.sort((x, y) => order(x, y) || x.a.u.localeCompare(y.a.u));
+  shares.sort(order); created.sort(order);
 
-  // 1. 填寫說明
-  const guide = wb.addWorksheet("填寫說明");
-  guide.getColumn(1).width = 110;
+  // 1. 總覽：說明與各負責人的統計
+  const intro = wb.addWorksheet("總覽");
+  [16, 10, 10, 10, 10, 10, 18].forEach((w, i) => intro.getColumn(i + 1).width = w);
   [
-    ["VM 帳號清單與使用紀錄", { bold: true, size: 16 }],
-    ["VM：" + vms.map(vmLabel).join("、") + "　　帳號：" + [...new Set(rows.map(r => r.a.u))].join("、"), { bold: true }],
-    ["負責人：" + who + "　　匯出日期：" + date],
-    [rec.at ? "分享紀錄與自建帳號已帶入負責人在網頁上填寫的內容（同步時間：" + rec.at + "，分享 " + shares.length + " 筆、自建 " + created.length + " 筆）。"
-      : "尚未同步過負責人在網頁上填寫的紀錄。"],
-    [""],
-    ["一、本檔案用途", { bold: true }],
-    ["　　本檔案只記錄上述 VM 的使用狀況，不含密碼；帳號密碼請登入 VM 管理網站查看。"],
-    ["二、需要您填寫的工作表（黃色欄位）", { bold: true }],
-    ["　　「分享紀錄」：若將本檔案的帳號密碼提供給他人使用，請逐筆記錄分享對象與日期；收回時填寫收回日期。"],
-    ["　　「自建帳號」：若登入此 VM 後自行建立其他帳號，請逐筆記錄；帳號停用時填寫停用日期。"],
-    ["　　建議：需要讓他人使用 VM 時，請為對方建立個人帳號並記錄於「自建帳號」，盡量避免多人共用同一組帳密。"],
-    ["三、權限分級", { bold: true }],
-    ["　　管理員：可安裝軟體、變更系統設定、管理帳號"],
-    ["　　一般：可登入並執行日常作業，不能變更系統設定或管理帳號"],
-    ["　　唯讀：僅能檢視，不能修改"],
-    ["四、稽核", { bold: true }],
-    ["　　稽核時請提供本檔案的最新版本。「帳號清單」工作表已鎖定，請勿修改。"]
-  ].forEach(([text, font]) => { const c = guide.addRow([text]).getCell(1); c.alignment = { wrapText: true, vertical: "top" }; if (font) c.font = font; });
-
-  // 2. 帳號清單（系統帶出，鎖定）；密碼一律不匯出，改由負責人登入網站查看
-  const list = sheet("帳號清單", [{ h: "VM 名稱", w: 34 }, { h: "IP", w: 16 }, { h: "實體機", w: 10 }, { h: "VM ID", w: 12 }, { h: "帳號", w: 18 }, { h: "負責人", w: 12 }, { h: "匯出日期", w: 12 }], 0);
-  rows.forEach(({ v, a }) => {
-    const row = list.addRow([v.n, v.ip || "", hostName(v.h), v.q || "", a.u, who, date]);
-    row.eachCell({ includeEmpty: true }, c => { c.border = border; c.numFmt = "@"; });
+    ["VM 帳號管理紀錄", { bold: true, size: 16 }],
+    ["匯出日期：" + today()],
+    ["本檔案彙整各負責人的 VM 帳號、帳號分享紀錄與自建帳號，作為帳號管理的稽核依據；不含任何密碼。"],
+    ["「分享紀錄」與「自建帳號」由負責人在 VM 管理網站上填寫，內容為各負責人最後一次同步的結果（同步時間見下表）。"],
+    ["「帳號清單」只列出未下架的 VM；紀錄則全部保留，包含已收回、已停用與 VM 已下架的項目。"],
+    ["權限分級　管理員：可安裝軟體、變更系統設定、管理帳號；一般：可登入並執行日常作業；唯讀：僅能檢視。"],
+    [""]
+  ].forEach(([text, font]) => {
+    const row = intro.addRow([text]);
+    if (text) intro.mergeCells(row.number, 1, row.number, 7);
+    if (font) row.getCell(1).font = font;
   });
-  await list.protect("", { selectLockedCells: true, selectUnlockedCells: true, formatColumns: true });
+  // 啟用中的負責人即使沒有帳號也列出，稽核時看得出「有這個人、目前沒有帳號」
+  const names = [...new Set([...S.owners.filter(o => !o.off).map(o => o.n), ...[...accs, ...shares, ...created].map(x => x.o)])].sort(ownerOrder);
+  const syncAt = n => { const o = S.owners.find(o => o.n === n); return o && S.records[o.id] ? S.records[o.id].at || "" : n === ADMIN ? "—" : "尚未同步"; };
+  intro.addRow(["負責人", "帳號數", "分享紀錄", "分享中", "自建帳號", "使用中", "紀錄同步時間"]).eachCell(headStyle);
+  names.forEach(n => intro.addRow([n, accs.filter(x => x.o === n).length, shares.filter(x => x.o === n).length, shares.filter(x => x.o === n && !x.r.revoked).length,
+    created.filter(x => x.o === n).length, created.filter(x => x.o === n && !x.r.disabled).length, syncAt(n)]).eachCell({ includeEmpty: true }, c => c.border = border));
+  await lock(intro);
 
-  // 3. 分享紀錄、4. 自建帳號（負責人填寫；一份檔案只對應一台 VM，所以不需要 VM 欄位）
-  // 權限下拉選單的來源放在最後的隱藏工作表「清單」
-  // 已同步的紀錄填在最前面，後面保留空白列
-  const toDate = s => /^\d{4}-\d{2}-\d{2}$/.test(s || "") ? new Date(Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10))) : (s || "");
-  const fill = (ws, list) => list.forEach((vals, i) => vals.forEach((x, j) => { if (x) ws.getCell(i + 2, j + 1).value = x; }));
-  fill(sheet("分享紀錄", [{ h: "分享對象", w: 16 }, { h: "分享日期", w: 14, date: true }, { h: "原因", w: 30 }, { h: "收回日期", w: 14, date: true }, { h: "備註", w: 24 }], FILL_ROWS + shares.length),
-    shares.map(r => [r.to, toDate(r.date), r.reason, toDate(r.revoked), r.note]));
-  fill(sheet("自建帳號", [{ h: "新建帳號", w: 18 }, { h: "權限", w: 10, list: "'清單'!$A$1:$A$" + PERM.length }, { h: "使用者", w: 16 }, { h: "建立日期", w: 14, date: true }, { h: "用途", w: 30 }, { h: "停用日期", w: 14, date: true }, { h: "備註", w: 24 }], FILL_ROWS + created.length),
-    created.map(r => [r.u, r.perm, r.user, toDate(r.date), r.purpose, toDate(r.disabled), r.note]));
-  const src = wb.addWorksheet("清單", { state: "hidden" });
-  PERM.forEach((t, i) => src.getCell(i + 1, 1).value = t);
+  // 2. 帳號清單、3. 分享紀錄、4. 自建帳號
+  await sheet("帳號清單", [{ h: "負責人", w: 14 }, { h: "VM 名稱", w: 34 }, { h: "IP", w: 16 }, { h: "實體機", w: 10 }, { h: "VM ID", w: 12 }, { h: "帳號", w: 18 }, { h: "VM 狀態", w: 10 }],
+    accs.map(x => [x.o, x.v.n, x.v.ip, hostName(x.v.h), x.v.q, x.a.u, x.v.on ? "上線" : "關機"]));
+  await sheet("分享紀錄", [{ h: "負責人", w: 14 }, { h: "VM 名稱", w: 34 }, { h: "帳號", w: 18 }, { h: "分享對象", w: 16 }, { h: "分享日期", w: 12, date: true }, { h: "原因", w: 30 },
+    { h: "收回日期", w: 12, date: true }, { h: "狀態", w: 10 }, { h: "備註", w: 24 }, { h: "最後修改", w: 17 }],
+    shares.map(({ o, vm, u, r }) => [o, vm, u, r.to, r.date, r.reason, r.revoked, r.revoked ? "已收回" : "分享中", r.note, r.updated]));
+  await sheet("自建帳號", [{ h: "負責人", w: 14 }, { h: "VM 名稱", w: 34 }, { h: "帳號", w: 18 }, { h: "權限", w: 10 }, { h: "使用者", w: 16 }, { h: "建立日期", w: 12, date: true }, { h: "用途", w: 30 },
+    { h: "停用日期", w: 12, date: true }, { h: "狀態", w: 10 }, { h: "備註", w: 24 }, { h: "最後修改", w: 17 }],
+    created.map(({ o, vm, r }) => [o, vm, r.u, r.perm, r.user, r.date, r.purpose, r.disabled, r.disabled ? "已停用" : "使用中", r.note, r.updated]));
   return wb;
 }
-/** 匯出帳號管理視窗中的一列；只匯出已儲存的內容，避免把未存檔的帳密交出去 */
-async function exportAccount(vmId, draft) {
-  const v = S.vms.find(x => x.id === vmId);
-  const a = v && (v.acc || []).find(x => x.id === draft.id);
-  if (!a || a.u !== (draft.u || "").trim() || (a.p || "") !== (draft.p || "") ||
-      (a.oid || "") !== (draft.oid || "") || (a.o || "") !== (draft.oid ? "" : (draft.o || "").trim()))
-    return toast("這一列還沒儲存，請先按「儲存」再匯出", "bad");
-  if (!a.oid) return toast(a.o ? "負責人「" + a.o + "」還沒對應到負責人清單，請先到「負責人」分頁對應" : "負責人空白（" + ADMIN + "）的帳號不需要匯出", "bad");
-  const ow = ownerById(a.oid);
-  if (!ow) return toast("找不到這個帳號的負責人，請重新選擇", "bad");
-  if (ow.off) return toast("負責人「" + ow.n + "」已停用", "bad");
-  if (v.off) return toast("這台 VM 已下架，不需要匯出", "bad");
-  // Excel 開啟密碼＝負責人名稱
-  const pw = ow.n;
+async function exportAudit() {
   toast("產生 Excel 中…");
   try {
-    const wb = await buildOwnerWorkbook(ow, [{ v, a }]);
-    const buf = await encryptXlsx(await wb.xlsx.writeBuffer(), pw);
-    const name = ("VM_" + v.n + "_" + today() + ".xlsx").replace(/[\\/:*?"<>|]/g, "_");
+    const buf = await (await buildAuditWorkbook()).xlsx.writeBuffer();
+    const name = "VM帳號管理紀錄_" + today() + ".xlsx";
     const link = el("a", { href: URL.createObjectURL(new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })), download: name });
     link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000);
-    toast("已匯出 " + name + "（開啟密碼：負責人名稱）");
+    toast("已匯出 " + name);
   } catch (e) { toast("匯出失敗（" + errText(e) + "）", "bad"); }
 }
+$("#btnAudit").onclick = exportAudit;
 
 $("#qAcc").oninput = renderAcc;
 $("#fAccShow").onchange = renderAcc;
