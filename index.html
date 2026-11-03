@@ -130,7 +130,7 @@ section.set h3{margin:0 0 8px;font-size:14px}
     <div id="ov-vm">
       <div class="bar ovsec"><span class="mute" id="ovCount"></span><div class="grow"></div>
         <label style="display:flex;align-items:center;gap:4px"><input type="checkbox" id="ovShowPw"> 顯示密碼</label></div>
-      <div class="mute ovhint">由管理員發佈，只能查看，密碼需要變更請聯絡管理員。把帳號提供給別人時按「＋ 分享」登記；在 VM 上自己建立帳號時按「＋ 自建帳號」登記。</div>
+      <div class="mute ovhint">由管理員發佈。在 VM 上改了帳號名稱或密碼（或要回填目前的帳密）時，按「更新帳密」登記，管理員「發佈並同步」後生效。把帳號提供給別人時按「＋ 分享」登記；在 VM 上自己建立帳號時按「＋ 自建帳號」登記。</div>
       <div class="tblwrap"><table>
         <thead><tr><th>VM</th><th>IP</th><th>實體機</th><th>VM ID</th><th>帳號</th><th>密碼</th><th>分享</th><th>自建帳號</th></tr></thead>
         <tbody id="ovVmBody"></tbody>
@@ -376,10 +376,11 @@ section.set h3{margin:0 0 8px;font-size:14px}
   <h2>發佈並同步</h2>
   <div class="mute" id="pubSub" style="font-size:12px;margin:-6px 0 10px"></div>
   <div class="tblwrap"><table>
-    <thead><tr><th>對象</th><th>repo</th><th>發佈</th><th>同步紀錄</th><th>紀錄變化</th></tr></thead>
+    <thead><tr><th>對象</th><th>repo</th><th>發佈</th><th>帳密變更</th><th>同步紀錄</th><th>紀錄變化</th></tr></thead>
     <tbody id="pubBody"></tbody>
   </table></div>
-  <div class="mute" style="font-size:12px;margin-top:8px">「沒有變更」表示內容跟 GitHub 上的一樣，所以沒有另外寫入。</div>
+  <div id="pubChBox" hidden><div style="font-weight:600;margin-top:12px">帳密變更明細</div><ul class="notes" id="pubCh" style="color:var(--text)"></ul></div>
+  <div class="mute" style="font-size:12px;margin-top:8px">「沒有變更」表示內容跟 GitHub 上的一樣，所以沒有另外寫入。帳密變更一律採用負責人送出的值；帳號已刪除、改給別人或 VM 已下架時不套用。</div>
   <div class="foot">
     <button type="button" id="btnPubRetry" hidden>重試失敗的</button>
     <button type="button" class="pri" id="btnPubClose">關閉</button>
@@ -422,6 +423,20 @@ section.set h3{margin:0 0 8px;font-size:14px}
   <div class="kv" id="ovInfo"></div>
   <div class="foot"><button type="button" class="pri" id="btnOvInfoClose">關閉</button></div>
 </div></dialog>
+
+<!-- 負責人：更新帳密 -->
+<dialog id="pwDlg"><form id="pwForm" autocomplete="off">
+  <h2>更新帳密</h2>
+  <div class="fg">
+    <label class="full">VM / 帳號<span class="fixed" id="pwTarget"></span></label>
+    <label>帳號<input name="u"></label>
+    <label>密碼<span class="pwcell"><input name="p" class="pw" type="password" autocomplete="new-password"><button type="button" class="sm" id="btnPwGen" title="產生 16 碼隨機密碼">產生</button><button type="button" class="sm" id="btnPwShow">顯示</button></span></label>
+    <div class="hint full mute">請填 VM 上目前實際的帳號與密碼。送出後顯示「待同步」，管理員「發佈並同步」後生效。改回原本的值等於取消。</div>
+  </div>
+  <div class="foot">
+    <button type="button" id="btnPwCancel">取消</button><button type="submit" class="pri">送出</button>
+  </div>
+</form></dialog>
 
 <!-- 負責人：分享紀錄 -->
 <dialog id="shareDlg"><form id="shareForm" autocomplete="off">
@@ -777,6 +792,13 @@ function cleanRecords(x) {
     shares: list(x && x.shares, ["id", "acc", "vmn", "u", "to", "date", "reason", "revoked", "note", "updated"]),
     created: list(x && x.created, ["id", "vm", "vmn", "u", "perm", "user", "date", "purpose", "disabled", "note", "updated"])
   };
+}
+/** 負責人送出、等待同步的帳密變更（負責人 repo 的 changes.json）
+    [{id, acc 帳號 id, u 新帳號, p 新密碼, vmn／u0 送出時的 VM 名稱與帳號（結果視窗顯示用）, at}]；管理員同步後刪除 */
+function cleanChanges(d) {
+  return { v: 1, changes: arr(isObj(d) ? d.changes : null).filter(isObj)
+    .map(c => strip({ id: str(c.id), acc: str(c.acc), u: str(c.u), p: typeof c.p === "string" ? c.p : "", vmn: str(c.vmn), u0: str(c.u0), at: dateOr(c.at) }))
+    .filter(c => c.id && c.acc && c.u) };
 }
 /** 管理員發佈給負責人的資料（負責人 repo 的 data.json） */
 function cleanOwnerData(d) {
@@ -1603,9 +1625,44 @@ function diffRecords(prev, next) {
   return d;
 }
 let pubRunning = false, pubFailed = [];
-function pubRow(name, repo, pub, sync, change, bad) {
+function pubRow(name, repo, pub, ch, sync, change, bad) {
   return el("tr", null, el("td", { text: name }), el("td", { class: "mute", text: repo }),
-    el("td", { class: bad ? "warnip" : "", text: pub }), el("td", { text: sync }), change);
+    el("td", { class: bad ? "warnip" : "", text: pub }), ch, el("td", { text: sync }), change);
+}
+/** 帳密變更欄：套用幾筆、未套用幾筆 */
+function chCell(res) {
+  if (!res || !res.length) return el("td", { text: "—" });
+  const n = res.filter(x => !x.why).length, skip = res.length - n;
+  return el("td", null, n ? "套用 " + n : "", skip ? el("span", { class: "warnt", text: (n ? "、" : "") + "未套用 " + skip }) : "");
+}
+/** 清掉負責人 changes.json 中已處理的變更；同步期間負責人新送出的保留到下次。
+    以讀到的版本寫回，期間檔案剛好被負責人改過（409）就重讀再試 */
+async function clearChanges(repo, ids) {
+  for (let tries = 1; ; tries++) {
+    const cur = await ghGet(repo, "changes.json");
+    if (!cur) return;
+    const all = cleanChanges(cur.data).changes, left = all.filter(c => !ids.has(c.id));
+    if (left.length === all.length) return;
+    const res = await ghReq(repo, "changes.json", { method: "PUT", body: { message: "同步：清除已套用的帳密變更", sha: cur.sha,
+      content: b64enc(JSON.stringify({ v: 1, changes: left }, null, 2) + "\n") } });
+    if (res.ok) return;
+    if ((res.status === 409 || res.status === 422) && tries < 3) continue;
+    throw ghErr(res, "清除 " + repo + " 的帳密變更失敗");
+  }
+}
+/** 把一位負責人的帳密變更套用到管理員資料 st；只套用到仍屬於他、VM 未下架的帳號（刪除、轉移、下架以管理員為準）
+    回傳每筆的結果 [{label, why 未套用原因, uTo 新帳號名稱, pw 密碼有變, dup 和同一台 VM 的其他帳號同名}] */
+function applyChanges(st, o, changes) {
+  const all = st.vms.flatMap(v => (v.acc || []).map(a => ({ v, a })));
+  return changes.map(c => {
+    const hit = all.find(x => x.a.id === c.acc);
+    const label = hit ? hit.v.n + " / " + hit.a.u : (c.vmn || "?") + " / " + (c.u0 || "?");
+    const why = !hit ? "帳號已不存在" : hit.a.oid !== o.id ? "帳號已改給其他負責人" : hit.v.off ? "VM 已下架" : "";
+    if (why) return { label, why };
+    const r = { label, uTo: hit.a.u !== c.u ? c.u : "", pw: (hit.a.p || "") !== (c.p || ""), dup: hit.v.acc.some(x => x !== hit.a && x.u === c.u) };
+    hit.a.u = c.u; hit.a.p = c.p || "";
+    return r;
+  });
 }
 function diffCell(d) {
   if (!d) return el("td", { text: "—" });
@@ -1613,43 +1670,61 @@ function diffCell(d) {
   return el("td", null, parts.length || d.del.length ? parts.join("、") : "沒有變化",
     d.del.length ? el("span", { class: "warnip", text: (parts.length ? "、" : "") + "⚠ 刪除 " + d.del.length + "（" + [...new Set(d.del)].join("、") + "）" }) : "");
 }
-/** 發佈並同步；only 為要重試的負責人 id 清單 */
+/** 發佈並同步；only 為要重試的負責人 id 清單
+    順序：讀回各負責人的帳密變更與紀錄 → 存回管理員資料（一筆 commit）→ 清掉已處理的帳密變更 → 發佈給負責人 → 發佈 MIS */
 async function publishAndSync(only) {
   if (!GH || store.status !== "ready") return toast("需要先連線 GitHub", "bad");
   if (pubRunning) return;
   const owners = S.owners.filter(o => !o.off && (!only || only.includes(o.id))).sort(byName);
   const skipped = only ? 0 : S.owners.filter(o => o.off).length;
-  if (!only && !confirm("發佈給 " + owners.length + " 位負責人與 MIS，並同步負責人填寫的紀錄？" + (skipped ? "\n（已停用的 " + skipped + " 位不發佈）" : ""))) return;
+  if (!only && !confirm("發佈給 " + owners.length + " 位負責人與 MIS，並同步負責人的帳密變更與紀錄？" + (skipped ? "\n（已停用的 " + skipped + " 位不發佈）" : ""))) return;
   pubRunning = true; pubFailed = [];
   const body = $("#pubBody");
-  body.replaceChildren();
+  body.replaceChildren(); $("#pubCh").replaceChildren(); $("#pubChBox").hidden = true;
   $("#pubSub").textContent = "處理中…";
   $("#btnPubRetry").hidden = true; $("#btnPubClose").disabled = true;
   $("#pubDlg").showModal();
+  // 1. 讀回：帳密變更（changes.json）、紀錄（records.json）
   const results = [];
   for (const o of owners) {
-    const repo = OWNER_REPO + o.code, r = { o };
-    try { r.pub = (await ghPut(repo, "data.json", ownerPayload(o), "發佈：管理員更新資料")) ? "已發佈" : "沒有變更"; }
-    catch (e) { r.err = e.message; }
-    if (!r.err) {
-      try {
-        const cur = await ghGet(repo, "records.json");
-        r.rec = cleanRecords(cur ? cur.data : {});
-        r.diff = diffRecords(S.records[o.id], r.rec);
-        r.changed = !S.records[o.id] || r.diff.add || r.diff.mod || r.diff.del.length;
-        r.sync = cur ? "已同步" : "尚無紀錄";
-      } catch (e) { r.err = e.message; }
-    }
-    if (r.err) pubFailed.push(o.id);
+    const r = { o, repo: OWNER_REPO + o.code, ch: [] };
+    try {
+      const ch = await ghGet(r.repo, "changes.json");
+      r.ch = cleanChanges(ch ? ch.data : {}).changes;
+      const cur = await ghGet(r.repo, "records.json");
+      r.rec = cleanRecords(cur ? cur.data : {});
+      r.diff = diffRecords(S.records[o.id], r.rec);
+      r.changed = !S.records[o.id] || r.diff.add || r.diff.mod || r.diff.del.length;
+      r.sync = cur ? "已同步" : "尚無紀錄";
+    } catch (e) { r.err = e.message; }
     results.push(r);
-    body.append(pubRow(o.n, repo, r.err ? "失敗：" + r.err : r.pub, r.err ? "—" : r.sync, diffCell(r.diff), !!r.err));
   }
-  // 有變化的紀錄才寫入管理員資料（一筆 commit，紀錄的歷史留在 GitHub）；都沒變化就不寫
-  const changed = results.filter(r => r.rec && r.changed);
-  const saved = !changed.length || await edit(st => {
+  // 2. 存回管理員資料：套用帳密變更、有變化的紀錄；都沒有就不寫
+  const ok = results.filter(r => !r.err), withCh = ok.filter(r => r.ch.length), changed = ok.filter(r => r.changed);
+  const saved = !withCh.length && !changed.length || await edit(st => {
+    withCh.forEach(r => { r.res = applyChanges(st, r.o, r.ch); });
     changed.forEach(r => { st.records[r.o.id] = Object.assign({ at: nowStamp() }, r.rec); });
-  }, "發佈並同步：同步負責人紀錄");
-  // 發佈 MIS：以剛更新的管理員資料產生不含密碼的副本
+  }, withCh.length ? "發佈並同步：套用負責人帳密變更、同步紀錄" : "發佈並同步：同步負責人紀錄");
+  // 3. 每位負責人：清掉已處理的帳密變更，再發佈最新資料
+  for (const r of results) {
+    // 管理員資料沒存成功：帳密變更其實沒有套用（留在 changes.json 下次再處理），也不發佈
+    if (!saved) { r.res = null; r.err = r.err || "管理員資料沒有存成功，未發佈"; }
+    if (!r.err && r.ch.length) {
+      try { await clearChanges(r.repo, new Set(r.ch.map(c => c.id))); }
+      catch (e) { r.err = e.message + "（帳密已套用，下次同步會再清除）"; }
+    }
+    if (!r.err || r.res) {
+      try { r.pub = (await ghPut(r.repo, "data.json", ownerPayload(r.o), "發佈：管理員更新資料")) ? "已發佈" : "沒有變更"; }
+      catch (e) { r.err = r.err || e.message; }
+    }
+    if (r.err) pubFailed.push(r.o.id);
+    body.append(pubRow(r.o.n, r.repo, r.err ? "失敗：" + r.err : r.pub, chCell(r.res), r.rec ? r.sync : "—", diffCell(r.diff), !!r.err));
+    (r.res || []).forEach(x => $("#pubCh").append(el("li", null, r.o.n + "：" + x.label + " → ",
+      x.why ? el("span", { class: "warnt", text: x.why + "，未套用" }) : [x.uTo && "帳號改為 " + x.uTo, x.pw && "密碼已更新"].filter(Boolean).join("、") || "內容相同",
+      x.dup ? el("span", { class: "warnip", text: "（⚠ 和同一台 VM 的其他帳號同名）" }) : "")));
+  }
+  $("#pubChBox").hidden = !$("#pubCh").children.length;
+  // 4. 發佈 MIS：以剛更新的管理員資料產生不含密碼的副本
   let mis;
   if (!saved) mis = { err: "管理員資料沒有存成功，未發佈 MIS" };
   else {
@@ -1658,7 +1733,7 @@ async function publishAndSync(only) {
     else try { mis = { pub: (await ghPut(MIS_REPO, "data.json", payload, "發佈：MIS 資料（不含密碼）")) ? "已發佈" : "沒有變更" }; }
     catch (e) { mis = { err: e.message }; }
   }
-  body.append(pubRow("MIS（不含密碼）", MIS_REPO, mis.err ? "失敗：" + mis.err : mis.pub, "—", el("td", { text: "—" }), !!mis.err));
+  body.append(pubRow("MIS（不含密碼）", MIS_REPO, mis.err ? "失敗：" + mis.err : mis.pub, el("td", { text: "—" }), "—", el("td", { text: "—" }), !!mis.err));
   const nFail = pubFailed.length + (mis.err ? 1 : 0);
   $("#pubSub").textContent = (nFail ? "完成，但有 " + nFail + " 項失敗" : "全部完成") + "（" + nowStamp() + "）";
   $("#btnPubRetry").hidden = !nFail;
@@ -1956,8 +2031,9 @@ async function initRole() {
 }
 
 /* ---------- 負責人畫面 ----------
-   data.json：管理員發佈的 VM 與帳號，只能查看；records.json：負責人填寫的分享紀錄與自建帳號，管理員「發佈並同步」時讀回 */
-let OD = cleanOwnerData({}), OR = { v: 1, ...cleanRecords({}) }, recStore = null, pubOk = false;
+   data.json：管理員發佈的 VM 與帳號，只能查看；records.json：負責人填寫的分享紀錄與自建帳號，管理員「發佈並同步」時讀回
+   changes.json：負責人送出的帳密變更，管理員「發佈並同步」時套用後刪除 */
+let OD = cleanOwnerData({}), OR = { v: 1, ...cleanRecords({}) }, OC = cleanChanges({}), recStore = null, chStore = null, pubOk = false;
 const OV_TAB = "eas-vm-portal:ovtab";
 try { const t = localStorage.getItem(OV_TAB); ui.ov = ["share", "cr"].includes(t) ? t : "vm"; } catch (e) { ui.ov = "vm"; }
 document.querySelectorAll("#ovTabs button").forEach(b => b.onclick = () => { ui.ov = b.dataset.ov; try { localStorage.setItem(OV_TAB, ui.ov); } catch (e) {} renderOwner(); });
@@ -1974,7 +2050,16 @@ function startOwner() {
     onStatus: (st, info) => { pubOk = st === "ready"; if (info.error) toast("讀取管理員發佈的資料失敗：" + info.error.message, "bad"); renderOwner(); } });
   recStore = GitHubStore.create({ ...opt, fileName: "records.json", clean: d => ({ v: 1, ...cleanRecords(d) }),
     onChange: st => { OR = st; renderOwner(); }, onStatus });
-  pub.init(); recStore.init();
+  chStore = GitHubStore.create({ ...opt, fileName: "changes.json", clean: cleanChanges,
+    onChange: st => { OC = st; renderOwner(); },
+    onStatus: (st, info) => { if (info.error) toast("讀取帳密變更失敗：" + info.error.message, "bad"); } });
+  pub.init(); recStore.init(); chStore.init();
+}
+/** 修改 changes.json（帳密變更） */
+function chEdit(fn) {
+  if (!chStore || chStore.status !== "ready") { openSettings(); toast("尚未連線 GitHub，請到設定檢查", "bad"); return Promise.resolve(false); }
+  if (savingN) { toast("正在儲存，請稍候"); return Promise.resolve(false); }
+  return guardSave(chStore.mutate(fn, "負責人更新帳密：" + (OD.owner.name || GH.repo)).then(r => r !== false));
 }
 /** 修改 records.json；commit 訊息註明是哪位負責人（所有 token 都在同一個 GitHub 帳號下，作者看不出是誰） */
 function recEdit(fn) {
@@ -2013,11 +2098,14 @@ function renderOwner() {
   $("#ovCount").textContent = nAcc ? OD.vms.length + " 台 VM · " + nAcc + " 個帳號" : "";
   $("#ovVmBody").replaceChildren(...(nAcc ? OD.vms.flatMap(v => v.accounts.map((a, i) => {
     const span = { rowspan: v.accounts.length, class: "top" };
+    // 有待同步的變更時，顯示負責人送出的新值
+    const ch = OC.changes.find(c => c.acc === a.id), cur = ch || a;
     return el("tr", null,
       !i && [el("td", { ...span, text: v.name }), el("td", { ...span, text: v.ip || "—" }), el("td", { ...span, text: v.host || "—" }), el("td", { ...span, text: v.vmid || "—" })],
-      el("td", { text: a.u }),
-      el("td", null, el("span", { class: "pw", text: a.p ? (show ? a.p : "••••••") : "—" }),
-        a.p && " ", a.p && el("button", { class: "sm", text: "複製", onclick: () => copyText(a.p) })),
+      el("td", null, cur.u, ch && " ", ch && el("span", { class: "tag s-applied", title: "已送出，管理員「發佈並同步」後生效", text: "待同步" })),
+      el("td", null, el("span", { class: "pw", text: cur.p ? (show ? cur.p : "••••••") : "—" }),
+        cur.p && " ", cur.p && el("button", { class: "sm", text: "複製", onclick: () => copyText(cur.p) }),
+        " ", el("button", { class: "sm", text: "更新帳密", title: "登記 VM 上目前實際的帳號與密碼", onclick: () => openPw(a.id) })),
       el("td", null, el("button", { class: "sm", text: "＋ 分享", title: "登記把這個帳號提供給別人使用", onclick: () => openShare(null, a.id) }), cnt(nShare(a.id), "分享中")),
       !i && el("td", span, el("button", { class: "sm", text: "＋ 自建帳號", title: "登記在這台 VM 上自己建立的帳號", onclick: () => openCr(null, v.id) }), cnt(nCr(v.id), "使用中")));
   })) : [el("tr", null, el("td", { colspan: 8, class: "empty", text: OD.published ? "目前沒有指派給你的帳號" : "尚無資料" }))]));
@@ -2069,6 +2157,35 @@ function recDel(kind, id, dlg) {
 /** 視窗上方顯示紀錄對應的帳號或 VM（固定，不能在視窗中更換） */
 const targetText = x => [x.text, x.gone ? "（已不在你的清單）" : ""].join("");
 // 編輯中的紀錄 id（新增時為空）與它對應的帳號／VM id
+let pwAcc = null;
+const pwForm = $("#pwForm");
+function openPw(accId) {
+  const x = ownAccs().find(x => x.a.id === accId);
+  if (!x) return toast("找不到這個帳號（可能已被管理員移除）", "bad");
+  const ch = OC.changes.find(c => c.acc === accId);
+  pwAcc = x;
+  $("#pwTarget").textContent = x.v.name + " / " + x.a.u;
+  pwForm.u.value = ch ? ch.u : x.a.u; pwForm.p.value = ch ? ch.p : x.a.p;
+  pwForm.p.type = "password"; $("#btnPwShow").textContent = "顯示";
+  $("#pwDlg").showModal();
+}
+$("#btnPwGen").onclick = () => { pwForm.p.value = genPassword(); pwForm.p.type = "text"; $("#btnPwShow").textContent = "隱藏"; };
+$("#btnPwShow").onclick = () => { const show = pwForm.p.type === "password"; pwForm.p.type = show ? "text" : "password"; $("#btnPwShow").textContent = show ? "隱藏" : "顯示"; };
+$("#btnPwCancel").onclick = () => $("#pwDlg").close();
+pwForm.addEventListener("submit", e => {
+  e.preventDefault();
+  const { v, a } = pwAcc, u = pwForm.u.value.trim(), p = pwForm.p.value;
+  if (!u) return toast("請輸入帳號", "bad");
+  if (!p) return toast("請輸入密碼", "bad");
+  const ch = OC.changes.find(c => c.acc === a.id);
+  // 和管理員發佈的值相同＝沒有要變更（若之前有送出待同步的變更，等於取消）
+  const same = u === a.u && p === a.p;
+  if ((same && !ch) || (ch && ch.u === u && ch.p === p)) { $("#pwDlg").close(); return toast("沒有變更"); }
+  chEdit(st => {
+    st.changes = st.changes.filter(c => c.acc !== a.id);   // 同一個帳號只保留最新一筆
+    if (!same) st.changes.push({ id: uid(), acc: a.id, u, p, vmn: v.name, u0: a.u, at: nowStamp() });
+  }).then(ok => { if (!ok) return; $("#pwDlg").close(); toast(same ? "已取消待同步的變更" : "已送出，管理員「發佈並同步」後生效"); });
+});
 let shareEdit = "", shareAccId = "", crEdit = "", crVmId = "";
 const shareForm = $("#shareForm"), crForm = $("#crForm");
 /** 開啟分享紀錄視窗：編輯傳入紀錄 id；新增傳入帳號 id（從「我的 VM」的「＋ 分享」） */
