@@ -38,7 +38,7 @@ th{background:#f8f9fb;font-weight:600;font-size:12px;color:var(--mute);position:
 tr.retired td{color:var(--mute);text-decoration:line-through}
 tr.retired td.act{text-decoration:none}
 #accDlg{width:min(900px,96vw)}
-.accrow{display:grid;grid-template-columns:1fr 1fr 1fr 130px;gap:6px;margin-bottom:6px;align-items:center}
+.accrow{display:grid;grid-template-columns:1fr 1fr 1fr 190px;gap:6px;margin-bottom:6px;align-items:center}
 .accrow.head span{font-size:12px;color:var(--mute)}
 .accrow .btns{display:flex;gap:4px}
 .pwcell{display:flex;gap:4px}
@@ -1268,15 +1268,22 @@ function openAcc(id) {
 }
 function renderAccRows() {
   const show = $("#accDlgShow").checked, box = $("#accRows");
-  box.replaceChildren(...accDraft.map((a, i) => el("div", { class: "accrow" },
-    el("input", { value: a.u || "", placeholder: "帳號", oninput: e => a.u = e.target.value }),
-    el("span", { class: "pwcell" },
-      el("input", { value: a.p || "", placeholder: "密碼", type: show ? "text" : "password", autocomplete: "new-password", class: "pw", oninput: e => a.p = e.target.value }),
-      el("button", { type: "button", class: "sm", text: "產生", title: "產生 16 碼隨機密碼", onclick: e => { a.p = genPassword(); e.target.previousSibling.value = a.p; } })),
-    el("select", { onchange: e => { const val = e.target.value; if (val.startsWith("legacy:")) { a.o = val.slice(7); a.oid = ""; } else { a.oid = val; a.o = ""; } } }, ...ownerOptions(a)),
-    el("span", { class: "btns" },
-      el("button", { type: "button", class: "sm", text: "複製密碼", onclick: () => a.p ? copyText(a.p) : toast("沒有密碼", "bad") }),
-      el("button", { type: "button", class: "sm danger", text: "刪除", onclick: () => { accDraft.splice(i, 1); renderAccRows(); } })))));
+  box.replaceChildren(...accDraft.map((a, i) => {
+    const pw = el("input", { value: a.p || "", placeholder: "密碼", type: show ? "text" : "password", autocomplete: "new-password", class: "pw", oninput: e => a.p = e.target.value });
+    // 已有密碼時先確認，避免誤按蓋掉目前的密碼（儲存前都還能按「取消」放棄）
+    const gen = () => {
+      if (a.p && !confirm("「" + (a.u || "（未命名）") + "」產生新密碼會取代目前的密碼，確定嗎？\n（按「儲存」前都還可以按「取消」放棄）")) return;
+      a.p = pw.value = genPassword();
+    };
+    return el("div", { class: "accrow" },
+      el("input", { value: a.u || "", placeholder: "帳號", oninput: e => a.u = e.target.value }),
+      el("span", { class: "pwcell" }, pw),
+      el("select", { onchange: e => { const val = e.target.value; if (val.startsWith("legacy:")) { a.o = val.slice(7); a.oid = ""; } else { a.oid = val; a.o = ""; } } }, ...ownerOptions(a)),
+      el("span", { class: "btns" },
+        el("button", { type: "button", class: "sm", text: "複製密碼", onclick: () => a.p ? copyText(a.p) : toast("沒有密碼", "bad") }),
+        el("button", { type: "button", class: "sm", text: "產生", title: "產生 16 碼隨機密碼（已有密碼時會先確認）", onclick: gen }),
+        el("button", { type: "button", class: "sm danger", text: "刪除", onclick: () => { accDraft.splice(i, 1); renderAccRows(); } })));
+  }));
   if (!accDraft.length) box.append(el("div", { class: "mute", style: "font-size:12px;padding:6px 0", text: "這台 VM 沒有帳號（儲存後生效）" }));
 }
 /* 密碼產生：16 碼，含大小寫、數字、符號各至少一個，排除 0/O、1/l/I 等易混淆字元 */
