@@ -2085,7 +2085,10 @@ function renderOwner() {
   const nCr = id => OR.created.filter(r => r.vm === id && !r.disabled).length;
   const cnt = (n, t) => n ? el("span", { class: "mute", style: "font-size:12px", text: " " + t + " " + n }) : "";
   $("#ovCount").textContent = nAcc ? OD.vms.length + " 台 VM · " + nAcc + " 個帳號" : "";
-  $("#ovVmBody").replaceChildren(...(nAcc ? OD.vms.flatMap(v => v.accounts.map((a, i) => {
+  // 和管理員的 VM 清單相同排序：實體機 → IP → 名稱（沒有 IP 的排在該實體機最後）
+  const vms = OD.vms.slice().sort((a, b) => a.host.localeCompare(b.host) ||
+    (a.ip && b.ip ? ipNum(a.ip) - ipNum(b.ip) : (a.ip ? -1 : b.ip ? 1 : 0)) || a.name.localeCompare(b.name));
+  $("#ovVmBody").replaceChildren(...(nAcc ? vms.flatMap(v => v.accounts.map((a, i) => {
     const span = { rowspan: v.accounts.length, class: "top" };
     // 有待同步的變更時，顯示負責人送出的新值
     const ch = OC.changes.find(c => c.acc === a.id), cur = ch || a;
