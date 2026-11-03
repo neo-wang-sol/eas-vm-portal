@@ -87,6 +87,7 @@ td.top { vertical-align: top; }
 dialog{border:0;border-radius:12px;padding:0;width:min(720px,94vw);box-shadow:0 20px 60px rgba(0,0,0,.25)}
 dialog::backdrop{background:rgba(20,25,35,.4)}
 dialog form,dialog .dlg{padding:18px 20px}
+dialog .dlg form{padding:0}
 dialog h2{margin:0 0 12px;font-size:17px}
 .dlghead{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
 .fg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px}
@@ -266,19 +267,24 @@ section.set h3{margin:0 0 8px;font-size:14px}
     <h3>GitHub 連線</h3>
     <div class="connbox">
       <div id="ghText">尚未設定 GitHub 連線</div>
-      <div class="fg" style="margin-top:8px">
-        <label class="full">token<input id="ghToken" type="password" autocomplete="off"></label>
-      </div>
-      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
-        <button class="pri" id="btnGhConn">連線</button>
-        <button id="btnGhOff" hidden>中斷連線</button>
-      </div>
+      <!-- 用標準的登入表單（名稱＋密碼欄、送出），瀏覽器或密碼管理員才能儲存並自動填入 token -->
+      <form id="ghForm">
+        <div class="fg" style="margin-top:8px">
+          <label>名稱（給密碼管理員辨識用）<input id="ghUser" name="username" autocomplete="username" placeholder="例如：管理員、Neo"></label>
+          <label>token<input id="ghToken" name="password" type="password" autocomplete="current-password"></label>
+        </div>
+        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+          <button type="submit" class="pri" id="btnGhConn">連線</button>
+          <button type="button" id="btnGhOff" hidden>中斷連線</button>
+        </div>
+      </form>
       <div class="msg" id="ghMsg"></div>
     </div>
     <ul class="notes">
       <li>連線時會依 token 的權限自動判斷身分（管理員、MIS、負責人），並顯示對應的畫面。</li>
       <li>管理員的資料直接讀寫 GitHub 私有 repo 中的 data.json，每次儲存都是一筆 commit。</li>
       <li>token 只存在這台電腦的瀏覽器，不會寫入任何 repo；在公用電腦上用完請按「中斷連線」。</li>
+      <li>可以讓瀏覽器或密碼管理員儲存 token（第一次連線時會詢問是否儲存），之後就能自動填入；「名稱」只是讓你區分多組 token，系統不會用到。</li>
       <li>沒有設定 GitHub 連線時，改用下方的本機資料夾。</li>
     </ul>
   </section>
@@ -1994,11 +2000,13 @@ async function connectToken(token) {
   ghShow("已辨識為「" + (det.role === "owner" ? "負責人（" + det.repo + "）" : ROLE_TEXT[det.role]) + "」，重新載入中…");
   location.reload();
 }
-$("#btnGhConn").onclick = () => {
+// 用表單送出（而不是按鈕的 click），瀏覽器或密碼管理員才會偵測到「登入」並詢問是否儲存
+$("#ghForm").addEventListener("submit", e => {
+  e.preventDefault();
   const token = $("#ghToken").value.trim() || (GH ? GH.token : "");
   if (!token) return ghShow("請貼上 token", true);
   connectToken(token);
-};
+});
 /** 非管理員角色開啟網頁：舊設定沒有角色就先辨識，否則顯示角色畫面 */
 async function initRole() {
   // 舊設定沒有角色（或設定不完整）時，重新向 GitHub 確認 token 的權限
