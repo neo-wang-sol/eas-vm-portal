@@ -233,8 +233,8 @@ section.set h3{margin:0 0 8px;font-size:14px}
   <div id="tab-own" hidden>
     <div id="ownMap" class="alert" hidden></div>
     <div class="card" style="margin-bottom:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <b>VM 管理人</b>
-      <input id="admName" placeholder="管理人姓名" style="width:160px">
+      <b>VM 管理員</b>
+      <input id="admName" placeholder="管理員姓名" style="width:160px">
       <button class="rw" id="btnAdmName">儲存</button>
       <span class="mute" id="admInfo" style="font-size:12px"></span>
     </div>
@@ -410,7 +410,7 @@ section.set h3{margin:0 0 8px;font-size:14px}
   <div class="accrow head"><span>帳號</span><span>密碼</span><span>負責人</span><span></span></div>
   <div id="accRows"></div>
   <div class="foot">
-    <div class="left"><button type="button" id="btnAccAdmin" title="VM 管理人保留的帳號，負責人空白，自動產生密碼">＋ eas-admin</button><button type="button" id="btnAccOwner" title="給專案負責人的帳號，自動產生密碼">＋ eas-owner</button><button type="button" id="btnAccUnknown" title="帳號、密碼都還不知道時先佔位，密碼空白；選好負責人後，由負責人在網站上「更新帳密」回填">＋ unknow</button><button type="button" id="btnAccAdd">＋ 其他帳號</button><label style="display:flex;align-items:center;gap:4px;font-size:13px"><input type="checkbox" id="accDlgShow"> 顯示密碼</label></div>
+    <div class="left"><button type="button" id="btnAccAdmin" title="VM 管理員保留的帳號，負責人空白，自動產生密碼">＋ eas-admin</button><button type="button" id="btnAccOwner" title="給專案負責人的帳號，自動產生密碼">＋ eas-owner</button><button type="button" id="btnAccUnknown" title="帳號、密碼都還不知道時先佔位，密碼空白；選好負責人後，由負責人在網站上「更新帳密」回填">＋ unknow</button><button type="button" id="btnAccAdd">＋ 其他帳號</button><label style="display:flex;align-items:center;gap:4px;font-size:13px"><input type="checkbox" id="accDlgShow"> 顯示密碼</label></div>
     <button type="button" id="btnAccCancel">取消</button><button type="button" class="pri" id="btnAccSave">儲存</button>
   </div>
 </div></dialog>
@@ -789,7 +789,7 @@ function clean(d) {
   return out;
 }
 /** VM 的登入帳號：[{id, u 帳號, p 密碼, oid 負責人 id, o 舊版自由輸入的負責人名稱（尚未對應）}]
-    兩者都空白＝VM 管理人；沒有帳號時回傳 null 以省略欄位；密碼保留原樣不去空白 */
+    兩者都空白＝VM 管理員；沒有帳號時回傳 null 以省略欄位；密碼保留原樣不去空白 */
 function cleanAcc(x) {
   const ids = new Set();
   const out = arr(x).filter(isObj).map(a => {
@@ -1252,20 +1252,20 @@ $("#btnDelVm").onclick = () => {
 };
 
 /* ---------- 帳號管理 ---------- */
-/** 負責人空白＝VM 管理人保留的帳號（不發佈給任何負責人）；管理人的名字在負責人分頁設定（set.admin） */
-const ADMIN = "VM 管理人";
+/** 負責人空白＝VM 管理員保留的帳號（不發佈給任何負責人）；管理員的名字在負責人分頁設定（set.admin） */
+const ADMIN = "VM 管理員";
 const adminName = () => S.set.admin || ADMIN;
 const ownerById = id => S.owners.find(o => o.id === id);
 const byName = (x, y) => x.n.localeCompare(y.n);
-/** 帳號負責人的分組鍵：""＝VM 管理人、"id:…"＝清單中的負責人、"legacy:…"＝尚未對應的舊名稱 */
+/** 帳號負責人的分組鍵：""＝VM 管理員、"id:…"＝清單中的負責人、"legacy:…"＝尚未對應的舊名稱 */
 const ownerKey = a => a.oid ? "id:" + a.oid : a.o ? "legacy:" + a.o : "";
 function ownerName(a) {
   if (a.oid) { const o = ownerById(a.oid); return o ? o.n : "（已刪除的負責人）"; }
-  return a.o ? "⚠ 未對應：" + a.o : S.set.admin ? S.set.admin + "（VM 管理人）" : ADMIN;
+  return a.o ? "⚠ 未對應：" + a.o : S.set.admin ? S.set.admin + "（VM 管理員）" : ADMIN;
 }
 /** 帳號管理視窗的負責人選項：啟用中的負責人；目前已選的停用者、舊名稱也保留顯示 */
 function ownerOptions(a) {
-  const opts = [el("option", { value: "", text: "（" + (S.set.admin ? "VM 管理人：" + S.set.admin : ADMIN) + "）" })];
+  const opts = [el("option", { value: "", text: "（" + (S.set.admin ? "VM 管理員：" + S.set.admin : ADMIN) + "）" })];
   S.owners.filter(o => !o.off || o.id === a.oid).sort(byName)
     .forEach(o => opts.push(el("option", { value: o.id, text: o.n + (o.off ? "（停用）" : ""), selected: o.id === a.oid })));
   if (a.oid && !ownerById(a.oid)) opts.push(el("option", { value: a.oid, text: "（已刪除的負責人）", selected: true }));
@@ -1355,7 +1355,7 @@ function renderAcc() {
   const all = $("#fAccShow").value === "all", showPw = $("#accShowPw").checked;
   const vms = S.vms.filter(v => all || !v.off);
   const rows = vms.flatMap(v => (v.acc || []).map(a => ({ v, a })));
-  // 負責人篩選：依分組鍵列出，VM 管理人排最後
+  // 負責人篩選：依分組鍵列出，VM 管理員排最後
   const ownerLabels = new Map();
   rows.forEach(({ a }) => ownerLabels.set(ownerKey(a), ownerName(a)));
   const owners = [...ownerLabels.keys()].sort((x, y) => (x === "") - (y === "") || ownerLabels.get(x).localeCompare(ownerLabels.get(y)));
@@ -1410,12 +1410,12 @@ function ownerAlerts() {
   return legacyNames().size + S.owners.filter(o => !o.off && o.exp && -daysSince(o.exp) <= 30).length;
 }
 function renderOwn() {
-  // VM 管理人：輸入中不覆蓋，避免同步刷新時蓋掉正在打的字
+  // VM 管理員：輸入中不覆蓋，避免同步刷新時蓋掉正在打的字
   const an = $("#admName");
   if (document.activeElement !== an) an.value = S.set.admin || "";
   an.disabled = RO;
   const nAdm = S.vms.filter(v => !v.off).reduce((n, v) => n + (v.acc || []).filter(a => !a.oid && !a.o).length, 0);
-  $("#admInfo").textContent = "負責人空白的帳號（例如 eas-admin）由 VM 管理人保管，不發佈給任何負責人；畫面、匯出與審查表會顯示這個名字。目前 " + nAdm + " 個帳號。";
+  $("#admInfo").textContent = "負責人空白的帳號（例如 eas-admin）由 VM 管理員保管，不發佈給任何負責人；畫面、匯出與審查表會顯示這個名字。目前 " + nAdm + " 個帳號。";
   const legacy = RO ? new Map() : legacyNames(), box = $("#ownMap");
   box.hidden = !legacy.size;
   box.replaceChildren(...(legacy.size ? [
@@ -1521,7 +1521,7 @@ $("#btnAddOwn").onclick = () => openOwner(null);
 $("#btnAdmName").onclick = () => {
   const n = $("#admName").value.trim();
   if (n === (S.set.admin || "")) return toast("沒有變更");
-  edit(st => { st.set.admin = n; }, "設定 VM 管理人：" + (n || "（清除）")).then(ok => { if (ok) toast(n ? "VM 管理人：" + n : "已清除 VM 管理人的名字"); });
+  edit(st => { st.set.admin = n; }, "設定 VM 管理員：" + (n || "（清除）")).then(ok => { if (ok) toast(n ? "VM 管理員：" + n : "已清除 VM 管理員的名字"); });
 };
 $("#qOwn").oninput = renderOwn;
 $("#fOwnShow").onchange = renderOwn;
@@ -1769,7 +1769,7 @@ function loadLib(url, name, integrity) {
 }
 const loadExcelJS = () => loadLib(EXCELJS_URL, "ExcelJS", EXCELJS_SRI);
 const DELETED_OWNER = "（已刪除的負責人）";
-/** 稽核用的負責人名稱：清單中的負責人、尚未對應的舊名稱，空白＝VM 管理人 */
+/** 稽核用的負責人名稱：清單中的負責人、尚未對應的舊名稱，空白＝VM 管理員 */
 const auditOwner = a => a.oid ? (ownerById(a.oid) || { n: DELETED_OWNER }).n : a.o || adminName();
 /** 所有負責人同步回來的紀錄：[{o 負責人, vm VM 名稱, u 帳號, r 原始紀錄}]
     VM／帳號用目前的名稱；已不在清單中（帳號改給別人、VM 下架）時用登記當時的名稱 */
@@ -1830,7 +1830,7 @@ async function buildAuditWorkbook() {
   // 帳號清單只列未下架的 VM；紀錄全部保留（含已收回、已停用、VM 已下架）
   const accs = S.vms.filter(v => !v.off).flatMap(v => (v.acc || []).map(a => ({ o: auditOwner(a), vm: v.n, v, a })));
   const { shares, created } = allRecords();
-  // 依負責人（VM 管理人排最後）、VM、日期排序
+  // 依負責人（VM 管理員排最後）、VM、日期排序
   const ownerOrder = (x, y) => (x === adminName()) - (y === adminName()) || x.localeCompare(y);
   const order = (x, y) => ownerOrder(x.o, y.o) || x.vm.localeCompare(y.vm) || ((x.r && x.r.date) || "").localeCompare((y.r && y.r.date) || "");
   accs.sort((x, y) => order(x, y) || x.a.u.localeCompare(y.a.u));
