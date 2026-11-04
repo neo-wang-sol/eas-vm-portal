@@ -232,6 +232,12 @@ section.set h3{margin:0 0 8px;font-size:14px}
 
   <div id="tab-own" hidden>
     <div id="ownMap" class="alert" hidden></div>
+    <div class="card" style="margin-bottom:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <b>VM 管理人</b>
+      <input id="admName" placeholder="管理人姓名" style="width:160px">
+      <button class="rw" id="btnAdmName">儲存</button>
+      <span class="mute" id="admInfo" style="font-size:12px"></span>
+    </div>
     <div class="bar">
       <input id="qOwn" type="search" placeholder="搜尋名稱、代號、聯絡方式…" style="width:240px">
       <select id="fOwnShow"><option value="on">啟用中</option><option value="off">已停用</option><option value="all">全部</option></select>
@@ -746,7 +752,7 @@ function clean(d) {
   const from = clampInt(s.from, 1, 254, 1), to = clampInt(s.to, 1, 254, 254);
   const out = {
     v: 1,
-    set: { pre: /^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(str(s.pre)) ? str(s.pre) : "", from: Math.min(from, to), to: Math.max(from, to), cool: clampInt(s.cool, 0, 3650, 30) },
+    set: { pre: /^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(str(s.pre)) ? str(s.pre) : "", from: Math.min(from, to), to: Math.max(from, to), cool: clampInt(s.cool, 0, 3650, 30), admin: str(s.admin) },
     hosts: [], owners: [], vms: [], ipr: {}, log: [], records: {}
   };
   const ids = new Set();
@@ -1246,19 +1252,20 @@ $("#btnDelVm").onclick = () => {
 };
 
 /* ---------- 帳號管理 ---------- */
-/** 負責人空白＝VM 管理人保留的帳號（系統不記錄管理人是誰） */
+/** 負責人空白＝VM 管理人保留的帳號（不發佈給任何負責人）；管理人的名字在負責人分頁設定（set.admin） */
 const ADMIN = "VM 管理人";
+const adminName = () => S.set.admin || ADMIN;
 const ownerById = id => S.owners.find(o => o.id === id);
 const byName = (x, y) => x.n.localeCompare(y.n);
 /** 帳號負責人的分組鍵：""＝VM 管理人、"id:…"＝清單中的負責人、"legacy:…"＝尚未對應的舊名稱 */
 const ownerKey = a => a.oid ? "id:" + a.oid : a.o ? "legacy:" + a.o : "";
 function ownerName(a) {
   if (a.oid) { const o = ownerById(a.oid); return o ? o.n : "（已刪除的負責人）"; }
-  return a.o ? "⚠ 未對應：" + a.o : ADMIN;
+  return a.o ? "⚠ 未對應：" + a.o : S.set.admin ? S.set.admin + "（VM 管理人）" : ADMIN;
 }
 /** 帳號管理視窗的負責人選項：啟用中的負責人；目前已選的停用者、舊名稱也保留顯示 */
 function ownerOptions(a) {
-  const opts = [el("option", { value: "", text: "（" + ADMIN + "）" })];
+  const opts = [el("option", { value: "", text: "（" + (S.set.admin ? "VM 管理人：" + S.set.admin : ADMIN) + "）" })];
   S.owners.filter(o => !o.off || o.id === a.oid).sort(byName)
     .forEach(o => opts.push(el("option", { value: o.id, text: o.n + (o.off ? "（停用）" : ""), selected: o.id === a.oid })));
   if (a.oid && !ownerById(a.oid)) opts.push(el("option", { value: a.oid, text: "（已刪除的負責人）", selected: true }));
@@ -1403,6 +1410,12 @@ function ownerAlerts() {
   return legacyNames().size + S.owners.filter(o => !o.off && o.exp && -daysSince(o.exp) <= 30).length;
 }
 function renderOwn() {
+  // VM 管理人：輸入中不覆蓋，避免同步刷新時蓋掉正在打的字
+  const an = $("#admName");
+  if (document.activeElement !== an) an.value = S.set.admin || "";
+  an.disabled = RO;
+  const nAdm = S.vms.filter(v => !v.off).reduce((n, v) => n + (v.acc || []).filter(a => !a.oid && !a.o).length, 0);
+  $("#admInfo").textContent = "負責人空白的帳號（例如 eas-admin）由 VM 管理人保管，不發佈給任何負責人；畫面、匯出與審查表會顯示這個名字。目前 " + nAdm + " 個帳號。";
   const legacy = RO ? new Map() : legacyNames(), box = $("#ownMap");
   box.hidden = !legacy.size;
   box.replaceChildren(...(legacy.size ? [
@@ -1505,6 +1518,11 @@ $("#btnOwnDel").onclick = () => {
   }).then(ok => { if (!ok) return; if (err) return toast(err, "bad"); $("#ownDlg").close(); toast("已刪除負責人"); });
 };
 $("#btnAddOwn").onclick = () => openOwner(null);
+$("#btnAdmName").onclick = () => {
+  const n = $("#admName").value.trim();
+  if (n === (S.set.admin || "")) return toast("沒有變更");
+  edit(st => { st.set.admin = n; }, "設定 VM 管理人：" + (n || "（清除）")).then(ok => { if (ok) toast(n ? "VM 管理人：" + n : "已清除 VM 管理人的名字"); });
+};
 $("#qOwn").oninput = renderOwn;
 $("#fOwnShow").onchange = renderOwn;
 
@@ -1752,7 +1770,7 @@ function loadLib(url, name, integrity) {
 const loadExcelJS = () => loadLib(EXCELJS_URL, "ExcelJS", EXCELJS_SRI);
 const DELETED_OWNER = "（已刪除的負責人）";
 /** 稽核用的負責人名稱：清單中的負責人、尚未對應的舊名稱，空白＝VM 管理人 */
-const auditOwner = a => a.oid ? (ownerById(a.oid) || { n: DELETED_OWNER }).n : a.o || ADMIN;
+const auditOwner = a => a.oid ? (ownerById(a.oid) || { n: DELETED_OWNER }).n : a.o || adminName();
 /** 所有負責人同步回來的紀錄：[{o 負責人, vm VM 名稱, u 帳號, r 原始紀錄}]
     VM／帳號用目前的名稱；已不在清單中（帳號改給別人、VM 下架）時用登記當時的名稱 */
 function allRecords() {
@@ -1813,7 +1831,7 @@ async function buildAuditWorkbook() {
   const accs = S.vms.filter(v => !v.off).flatMap(v => (v.acc || []).map(a => ({ o: auditOwner(a), vm: v.n, v, a })));
   const { shares, created } = allRecords();
   // 依負責人（VM 管理人排最後）、VM、日期排序
-  const ownerOrder = (x, y) => (x === ADMIN) - (y === ADMIN) || x.localeCompare(y);
+  const ownerOrder = (x, y) => (x === adminName()) - (y === adminName()) || x.localeCompare(y);
   const order = (x, y) => ownerOrder(x.o, y.o) || x.vm.localeCompare(y.vm) || ((x.r && x.r.date) || "").localeCompare((y.r && y.r.date) || "");
   accs.sort((x, y) => order(x, y) || x.a.u.localeCompare(y.a.u));
   shares.sort(order); created.sort(order);
@@ -1836,7 +1854,7 @@ async function buildAuditWorkbook() {
   });
   // 啟用中的負責人即使沒有帳號也列出，稽核時看得出「有這個人、目前沒有帳號」
   const names = [...new Set([...S.owners.filter(o => !o.off).map(o => o.n), ...[...accs, ...shares, ...created].map(x => x.o)])].sort(ownerOrder);
-  const syncAt = n => { const o = S.owners.find(o => o.n === n); return o && S.records[o.id] ? S.records[o.id].at || "" : n === ADMIN ? "—" : "尚未同步"; };
+  const syncAt = n => { const o = S.owners.find(o => o.n === n); return o && S.records[o.id] ? S.records[o.id].at || "" : n === adminName() ? "—" : "尚未同步"; };
   intro.addRow(["負責人", "帳號數", "分享紀錄", "分享中", "自建帳號", "使用中", "紀錄同步時間"]).eachCell(xlHead);
   names.forEach(n => intro.addRow([n, accs.filter(x => x.o === n).length, shares.filter(x => x.o === n).length, shares.filter(x => x.o === n && !x.r.revoked).length,
     created.filter(x => x.o === n).length, created.filter(x => x.o === n && !x.r.disabled).length, syncAt(n)]).eachCell({ includeEmpty: true }, c => c.border = XL_BORDER));
