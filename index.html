@@ -177,6 +177,7 @@ section.set h3{margin:0 0 8px;font-size:14px}
         <option value="retired">已下架</option><option value="all">全部</option>
       </select>
       <select id="fOs"><option value="">全部 OS</option><option>Windows</option><option>Linux</option><option>其他</option><option value="-">未填 OS</option></select>
+      <select id="fBk"><option value="">全部備份狀態</option><option value="1">有備份</option><option value="0">未備份</option><option value="-">未填備份</option></select>
       <span class="mute" id="vmCount"></span>
       <div class="grow"></div>
       <button id="btnAudit" title="Excel：各負責人的帳號、分享紀錄、自建帳號，作為帳號管理的稽核依據（不含密碼）">匯出帳號管理紀錄</button>
@@ -184,7 +185,7 @@ section.set h3{margin:0 0 8px;font-size:14px}
       <button class="pri rw" id="btnAddVm">＋ 新增 VM</button>
     </div>
     <div class="tblwrap"><table>
-      <thead id="vmHead"><tr><th data-sort="h">實體機</th><th data-sort="q">VM ID</th><th data-sort="n">名稱</th><th data-sort="ip">IP</th><th>狀態</th><th data-sort="os">OS</th><th data-sort="cpu">CPU</th><th data-sort="mem">記憶體</th><th>標籤</th><th>等級</th><th>Proxy</th><th>EDR</th><th></th></tr></thead>
+      <thead id="vmHead"><tr><th data-sort="h">實體機</th><th data-sort="q">VM ID</th><th data-sort="n">名稱</th><th data-sort="ip">IP</th><th>狀態</th><th data-sort="os">OS</th><th data-sort="cpu">CPU</th><th data-sort="mem">記憶體</th><th>標籤</th><th>等級</th><th>Proxy</th><th>EDR</th><th>備份</th><th></th></tr></thead>
       <tbody id="vmBody"></tbody>
     </table></div>
   </div>
@@ -366,6 +367,8 @@ section.set h3{margin:0 0 8px;font-size:14px}
     <label>等級<select name="lv"><option value="">—</option><option>高</option><option>中</option><option>低</option></select></label>
     <label>Proxy<select name="px"><option value="">—</option><option value="1">是</option><option value="0">否</option></select></label>
     <label>EDR<select name="edr"><option value="">—</option><option value="1">是</option><option value="0">否</option></select></label>
+    <label>備份<select name="bk"><option value="">—</option><option value="1">是</option><option value="0">否</option></select></label>
+    <label>備份註記<input name="bkn" placeholder="例外情況，例如「只在週日備份」"></label>
     <label class="full">備註<textarea name="note" rows="2"></textarea></label>
     <div class="hint full mute" id="vmOffHint"></div>
   </div>
@@ -788,7 +791,7 @@ function clean(d) {
     if (!isObj(v)) return;
     out.vms.push(strip({
       id: newId(v.id), h: str(v.h), q: str(v.q), n: str(v.n) || "未命名", on: v.on ? 1 : 0, os: OS.includes(v.os) ? v.os : "", osv: str(v.osv), cpu: num(v.cpu), mem: num(v.mem),
-      tag: str(v.tag), lv: LV.includes(v.lv) ? v.lv : "", px: tri(v.px), edr: tri(v.edr), ip: ipOrEmpty(v.ip),
+      tag: str(v.tag), lv: LV.includes(v.lv) ? v.lv : "", px: tri(v.px), edr: tri(v.edr), bk: tri(v.bk), bkn: str(v.bkn), ip: ipOrEmpty(v.ip),
       note: mergeNote(str(v.note), swText(str(v.sys), str(v.sw), str(v.ver))), off: dateOr(v.off), acc: cleanAcc(v.acc)
     }));
   });
@@ -842,7 +845,7 @@ function cleanOwnerData(d) {
     // 舊版發佈的資料沒有 VM id，暫用名稱代替，管理員重新發佈後就會補上
     vms: arr(d.vms).filter(isObj).map(v => ({
       id: str(v.id) || str(v.name), vmid: str(v.vmid), name: str(v.name), ip: str(v.ip), host: str(v.host), os: str(v.os),
-      st: str(v.st), cpu: num(v.cpu), mem: num(v.mem), tag: str(v.tag), lv: str(v.lv), px: tri(v.px), edr: tri(v.edr), note: str(v.note),
+      st: str(v.st), cpu: num(v.cpu), mem: num(v.mem), tag: str(v.tag), lv: str(v.lv), px: tri(v.px), edr: tri(v.edr), bk: tri(v.bk), bkn: str(v.bkn), note: str(v.note),
       accounts: arr(v.accounts).filter(isObj).map(a => ({ id: str(a.id), u: str(a.u), p: typeof a.p === "string" ? a.p : "" })).filter(a => a.id && a.u)
     })).filter(v => v.id)
   };
@@ -1090,15 +1093,16 @@ function renderVm() {
   fh.value = S.hosts.some(h => h.id === cur) ? cur : "";
   $("#tagList").replaceChildren(...[...new Set(S.vms.map(v => v.tag).filter(Boolean))].map(t => el("option", { value: t })));
 
-  const q = $("#q").value.trim().toLowerCase(), show = $("#fShow").value, fos = $("#fOs").value;
+  const q = $("#q").value.trim().toLowerCase(), show = $("#fShow").value, fos = $("#fOs").value, fbk = $("#fBk").value;
   const list = S.vms.filter(v => {
     if (fh.value && v.h !== fh.value) return false;
     if (fos && (fos === "-" ? v.os : v.os !== fos)) return false;
+    if (fbk && (fbk === "-" ? v.bk != null : v.bk !== +fbk)) return false;
     if (show === "active" && v.off) return false;
     if (show === "on" && (v.off || !v.on)) return false;
     if (show === "off" && (v.off || v.on)) return false;
     if (show === "retired" && !v.off) return false;
-    if (q && ![v.n, v.ip, v.q, osText(v), v.tag, v.note, hostName(v.h), ...(v.acc || []).flatMap(a => [a.u, ownerName(a)])].some(x => x && x.toLowerCase().includes(q))) return false;
+    if (q && ![v.n, v.ip, v.q, osText(v), v.tag, v.note, v.bkn, hostName(v.h), ...(v.acc || []).flatMap(a => [a.u, ownerName(a)])].some(x => x && x.toLowerCase().includes(q))) return false;
     return true;
   }).sort(vmSortCmp);
   document.querySelectorAll("#vmHead th[data-sort]").forEach(th => {
@@ -1109,7 +1113,7 @@ function renderVm() {
   });
   $("#vmCount").textContent = list.length + " 台";
   const body = $("#vmBody");
-  if (!list.length) { body.replaceChildren(el("tr", null, el("td", { colspan: 13, class: "empty", text: S.vms.length ? "沒有符合的 VM" : "尚無資料" }))); return; }
+  if (!list.length) { body.replaceChildren(el("tr", null, el("td", { colspan: 14, class: "empty", text: S.vms.length ? "沒有符合的 VM" : "尚無資料" }))); return; }
   body.replaceChildren(...list.map(v => {
     const st = vmSt(v), nAcc = (v.acc || []).length;
     const conflict = v.ip && !v.off && stOf(A, v.ip) === "conflict";
@@ -1120,7 +1124,7 @@ function renderVm() {
       el("td", null, el("span", { class: "tag " + st[1], text: st[0] })),
       el("td", { text: osText(v) }),
       el("td", { class: "num", text: v.cpu ?? "" }), el("td", { class: "num", text: v.mem != null ? v.mem + " GiB" : "" }),
-      el("td", { text: v.tag || "" }), el("td", { text: v.lv || "—" }), el("td", { text: yn(v.px) }), el("td", { text: yn(v.edr) }),
+      el("td", { text: v.tag || "" }), el("td", { text: v.lv || "—" }), el("td", { text: yn(v.px) }), el("td", { text: yn(v.edr) }), el("td", { text: yn(v.bk) + (v.bkn ? " *" : ""), title: v.bkn || "" }),
       el("td", { class: "act" }, !RO && [el("button", { class: "sm", text: "帳號管理" + (nAcc ? " (" + nAcc + ")" : ""), onclick: () => openAcc(v.id) }),
         !v.off && " ", !v.off && el("button", { class: "sm danger", text: "下架", onclick: () => retireVm(v.id) })]));
   }));
@@ -1208,7 +1212,7 @@ function viewVm(id) {
   const v = S.vms.find(x => x.id === id);
   if (!v) return;
   showVmInfo(v.n, [["實體機", hostName(v.h)], ["VM ID", v.q], ["IP", v.ip], ["狀態", vmSt(v)[0]], ["作業系統", osText(v)],
-    ["CPU", v.cpu], ["記憶體", v.mem != null ? v.mem + " GiB" : ""], ["標籤", v.tag], ["等級", v.lv], ["Proxy", yn(v.px)], ["EDR", yn(v.edr)],
+    ["CPU", v.cpu], ["記憶體", v.mem != null ? v.mem + " GiB" : ""], ["標籤", v.tag], ["等級", v.lv], ["Proxy", yn(v.px)], ["EDR", yn(v.edr)], ["備份", yn(v.bk)], ["備份註記", v.bkn],
     ["帳號", (v.acc || []).map(a => a.u + "（" + ownerName(a) + "）").join("\n")], ["備註", v.note]]);
 }
 function openVm(id, presetIp) {
@@ -1224,6 +1228,7 @@ function openVm(id, presetIp) {
   f.os.value = d.os || ""; f.osv.value = d.osv || ""; osvHint();
   f.cpu.value = d.cpu ?? ""; f.mem.value = d.mem ?? ""; f.tag.value = d.tag || ""; f.lv.value = d.lv || "";
   f.px.value = d.px == null ? "" : String(d.px); f.edr.value = d.edr == null ? "" : String(d.edr);
+  f.bk.value = d.bk == null ? "" : String(d.bk); f.bkn.value = d.bkn || "";
   f.note.value = d.note || "";
   if (!v && presetIp && S.ipr[presetIp] && S.ipr[presetIp].use) f.n.value = S.ipr[presetIp].use;
   $("#vmTitle").textContent = v ? "編輯 VM" : "新增 VM";
@@ -1258,7 +1263,7 @@ vmForm.addEventListener("submit", e => {
   if (ip === null) return toast("IP 格式不正確", "bad");
   const data = {
     h: f.h.value, q: f.q.value.trim(), n: f.n.value.trim(), on: f.on.checked ? 1 : 0, os: f.os.value, osv: f.osv.value.trim(), cpu: num(f.cpu.value), mem: num(f.mem.value),
-    tag: f.tag.value.trim(), lv: f.lv.value, px: tri(f.px.value), edr: tri(f.edr.value), ip,
+    tag: f.tag.value.trim(), lv: f.lv.value, px: tri(f.px.value), edr: tri(f.edr.value), bk: tri(f.bk.value), bkn: f.bkn.value.trim(), ip,
     note: f.note.value.trim()
   };
   if (!data.n) return toast("請輸入名稱", "bad");
@@ -1664,7 +1669,7 @@ function ownerPayload(o) {
   const vms = S.vms.filter(v => !v.off)
     .map(v => ({ v, acc: (v.acc || []).filter(a => a.oid === o.id) })).filter(x => x.acc.length)
     .map(({ v, acc }) => ({ id: v.id, vmid: v.q || "", name: v.n, ip: v.ip || "", host: hostName(v.h), os: osText(v),
-      st: v.on ? "上線" : "關機", cpu: v.cpu ?? null, mem: v.mem ?? null, tag: v.tag || "", lv: v.lv || "", px: v.px ?? null, edr: v.edr ?? null, note: v.note || "",
+      st: v.on ? "上線" : "關機", cpu: v.cpu ?? null, mem: v.mem ?? null, tag: v.tag || "", lv: v.lv || "", px: v.px ?? null, edr: v.edr ?? null, bk: v.bk ?? null, bkn: v.bkn || "", note: v.note || "",
       accounts: acc.map(a => ({ id: a.id, u: a.u, p: a.p || "" })) }));
   return { v: 1, owner: { code: o.code, name: o.n }, published: nowStamp(), vms };
 }
@@ -2161,7 +2166,7 @@ const byDateDesc = (x, y) => (y.date || "").localeCompare(x.date || "") || (y.up
 /** 負責人：VM 內容（只能看；管理員發佈時附上的資料） */
 function ownVmInfo(v) {
   showVmInfo(v.name, [["實體機", v.host], ["VM ID", v.vmid], ["IP", v.ip], ["狀態", v.st], ["作業系統", v.os],
-    ["CPU", v.cpu], ["記憶體", v.mem != null ? v.mem + " GiB" : ""], ["標籤", v.tag], ["等級", v.lv], ["Proxy", yn(v.px)], ["EDR", yn(v.edr)],
+    ["CPU", v.cpu], ["記憶體", v.mem != null ? v.mem + " GiB" : ""], ["標籤", v.tag], ["等級", v.lv], ["Proxy", yn(v.px)], ["EDR", yn(v.edr)], ["備份", yn(v.bk)], ["備份註記", v.bkn],
     ["我的帳號", v.accounts.map(a => a.u).join("\n")], ["備註", v.note]]);
 }
 function renderOwner() {
@@ -2412,8 +2417,8 @@ copyGet().then(d => { copyDir = d; renderCopy(); });
 $("#btnVmXls").onclick = () => xlExport("VM清單_" + today() + ".xlsx", async () => {
   const wb = await xlWorkbook();
   xlTable(wb, "VM 清單", [{ h: "實體機", w: 10 }, { h: "VM ID", w: 12 }, { h: "名稱", w: 34 }, { h: "IP", w: 16 }, { h: "上線", w: 8 }, { h: "下架日", w: 12, date: true },
-    { h: "作業系統", w: 10 }, { h: "版本", w: 16 }, { h: "CPU", w: 8, num: true }, { h: "記憶體 GiB", w: 12, num: true }, { h: "標籤", w: 14 }, { h: "等級", w: 8 }, { h: "Proxy", w: 8 }, { h: "EDR", w: 8 }, { h: "備註", w: 40 }],
-    S.vms.map(v => [hostName(v.h), v.q, v.n, v.ip, v.on ? "是" : "否", v.off, v.os, v.osv, v.cpu, v.mem, v.tag, v.lv || "—", yn(v.px), yn(v.edr), v.note]));
+    { h: "作業系統", w: 10 }, { h: "版本", w: 16 }, { h: "CPU", w: 8, num: true }, { h: "記憶體 GiB", w: 12, num: true }, { h: "標籤", w: 14 }, { h: "等級", w: 8 }, { h: "Proxy", w: 8 }, { h: "EDR", w: 8 }, { h: "備份", w: 8 }, { h: "備份註記", w: 20 }, { h: "備註", w: 40 }],
+    S.vms.map(v => [hostName(v.h), v.q, v.n, v.ip, v.on ? "是" : "否", v.off, v.os, v.osv, v.cpu, v.mem, v.tag, v.lv || "—", yn(v.px), yn(v.edr), yn(v.bk), v.bkn, v.note]));
   return wb;
 });
 $("#btnIpXls").onclick = () => xlExport("IP清單_" + today() + ".xlsx", async () => {
@@ -2431,7 +2436,7 @@ document.querySelectorAll("#vmHead th[data-sort]").forEach(th => th.onclick = ()
   try { localStorage.setItem(VM_SORT_KEY, JSON.stringify(ui.vmSort)); } catch (e) {}
   renderVm();
 });
-$("#q").oninput = renderVm; $("#fHost").onchange = renderVm; $("#fShow").onchange = renderVm; $("#fOs").onchange = renderVm;
+$("#q").oninput = renderVm; $("#fHost").onchange = renderVm; $("#fShow").onchange = renderVm; $("#fOs").onchange = renderVm; $("#fBk").onchange = renderVm;
 $("#qIp").oninput = () => renderIp(problems(S, A)); $("#fIpSt").onchange = () => renderIp(problems(S, A));
 $("#btnAddVm").onclick = () => openVm(null);
 $("#btnApply").onclick = () => openApply("");
