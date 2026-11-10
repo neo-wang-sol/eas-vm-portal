@@ -138,7 +138,7 @@ section.set h3{margin:0 0 8px;font-size:14px}
         <label style="display:flex;align-items:center;gap:4px"><input type="checkbox" id="ovShowPw"> 顯示密碼</label></div>
       <div class="mute ovhint">由管理員發佈。在 VM 上改了帳號名稱或密碼（或要回填目前的帳密）時，按「更新帳密」登記，管理員「發佈並同步」後生效。把帳號提供給別人時按「＋ 分享」登記；在 VM 上自己建立帳號時按「＋ 自建帳號」登記。</div>
       <div class="tblwrap"><table>
-        <thead><tr><th>VM</th><th>IP</th><th>實體機</th><th>VM ID</th><th>帳號</th><th>密碼</th><th>分享</th><th>自建帳號</th></tr></thead>
+        <thead><tr><th>VM</th><th>IP</th><th>實體機</th><th>VM ID</th><th>OS</th><th>帳號</th><th>密碼</th><th>分享</th><th>自建帳號</th></tr></thead>
         <tbody id="ovVmBody"></tbody>
       </table></div>
     </div>
@@ -166,12 +166,13 @@ section.set h3{margin:0 0 8px;font-size:14px}
   <div id="tab-vm" hidden>
     <div class="hosts" id="hostCards"></div>
     <div class="bar">
-      <input id="q" type="search" placeholder="搜尋名稱、IP、VM ID、標籤…" style="width:260px">
+      <input id="q" type="search" placeholder="搜尋名稱、IP、VM ID、OS、標籤…" style="width:260px">
       <select id="fHost"></select>
       <select id="fShow">
         <option value="active">未下架</option><option value="on">上線</option><option value="off">關機（未下架）</option>
         <option value="retired">已下架</option><option value="all">全部</option>
       </select>
+      <select id="fOs"><option value="">全部 OS</option><option>Windows</option><option>Linux</option><option>其他</option><option value="-">未填 OS</option></select>
       <span class="mute" id="vmCount"></span>
       <div class="grow"></div>
       <button id="btnAudit" title="Excel：各負責人的帳號、分享紀錄、自建帳號，作為帳號管理的稽核依據（不含密碼）">匯出帳號管理紀錄</button>
@@ -179,7 +180,7 @@ section.set h3{margin:0 0 8px;font-size:14px}
       <button class="pri rw" id="btnAddVm">＋ 新增 VM</button>
     </div>
     <div class="tblwrap"><table>
-      <thead><tr><th>實體機</th><th>VM ID</th><th>名稱</th><th>IP</th><th>狀態</th><th>CPU</th><th>記憶體</th><th>標籤</th><th>等級</th><th>Proxy</th><th>EDR</th><th></th></tr></thead>
+      <thead><tr><th>實體機</th><th>VM ID</th><th>名稱</th><th>IP</th><th>狀態</th><th>OS</th><th>CPU</th><th>記憶體</th><th>標籤</th><th>等級</th><th>Proxy</th><th>EDR</th><th></th></tr></thead>
       <tbody id="vmBody"></tbody>
     </table></div>
   </div>
@@ -353,6 +354,8 @@ section.set h3{margin:0 0 8px;font-size:14px}
     </label>
     <label class="chk" style="align-self:end"><input type="checkbox" name="on"> 上線（開機中）</label>
     <div class="hint full" id="vmIpHint"></div>
+    <label>作業系統<select name="os"><option value="">—</option><option>Windows</option><option>Linux</option><option>其他</option></select></label>
+    <label>版本<input name="osv" list="osvList" placeholder="例如 Server 2019、Ubuntu 22.04"></label>
     <label>CPU<input name="cpu" type="number" min="0" step="1"></label>
     <label>記憶體 (GiB)<input name="mem" type="number" min="0" step="0.01"></label>
     <label>標籤<input name="tag" list="tagList"></label>
@@ -363,6 +366,7 @@ section.set h3{margin:0 0 8px;font-size:14px}
     <div class="hint full mute" id="vmOffHint"></div>
   </div>
   <datalist id="tagList"></datalist>
+  <datalist id="osvList"></datalist>
   <div class="foot">
     <div class="left"><button type="button" class="danger" id="btnRetire">下架並釋放 IP</button><button type="button" id="btnRestore">復原</button><button type="button" class="danger" id="btnDelVm">永久刪除</button></div>
     <button type="button" id="btnVmCancel">取消</button><button type="submit" class="pri">儲存</button>
@@ -703,6 +707,8 @@ section.set h3{margin:0 0 8px;font-size:14px}
 /* ---------- 工具 ---------- */
 const $ = s => document.querySelector(s);
 const LV = ["高", "中", "低"];
+/** 作業系統類別；版本（osv）為自由輸入，輸入時建議同類別已用過的寫法 */
+const OS = ["Windows", "Linux", "其他"];
 const ST = {
   free: "可用", released: "已釋放", cool: "冷卻中", applied: "申請中", reserved: "保留",
   used: "使用中", stopped: "關機占用", host: "實體機", conflict: "衝突"
@@ -770,7 +776,7 @@ function clean(d) {
   arr(d.vms).forEach(v => {
     if (!isObj(v)) return;
     out.vms.push(strip({
-      id: newId(v.id), h: str(v.h), q: str(v.q), n: str(v.n) || "未命名", on: v.on ? 1 : 0, cpu: num(v.cpu), mem: num(v.mem),
+      id: newId(v.id), h: str(v.h), q: str(v.q), n: str(v.n) || "未命名", on: v.on ? 1 : 0, os: OS.includes(v.os) ? v.os : "", osv: str(v.osv), cpu: num(v.cpu), mem: num(v.mem),
       tag: str(v.tag), lv: LV.includes(v.lv) ? v.lv : "", px: tri(v.px), edr: tri(v.edr), ip: ipOrEmpty(v.ip),
       note: mergeNote(str(v.note), swText(str(v.sys), str(v.sw), str(v.ver))), off: dateOr(v.off), acc: cleanAcc(v.acc)
     }));
@@ -824,7 +830,7 @@ function cleanOwnerData(d) {
     v: 1, owner: { code: str(o.code), name: str(o.name) }, published: dateOr(d.published),
     // 舊版發佈的資料沒有 VM id，暫用名稱代替，管理員重新發佈後就會補上
     vms: arr(d.vms).filter(isObj).map(v => ({
-      id: str(v.id) || str(v.name), vmid: str(v.vmid), name: str(v.name), ip: str(v.ip), host: str(v.host),
+      id: str(v.id) || str(v.name), vmid: str(v.vmid), name: str(v.name), ip: str(v.ip), host: str(v.host), os: str(v.os),
       accounts: arr(v.accounts).filter(isObj).map(a => ({ id: str(a.id), u: str(a.u), p: typeof a.p === "string" ? a.p : "" })).filter(a => a.id && a.u)
     })).filter(v => v.id)
   };
@@ -1030,6 +1036,8 @@ function render() {
 }
 /** VM 的排序：實體機 → IP（數字順序，沒有 IP 的排在該實體機最後）→ 名稱；VM 清單與帳號分頁共用 */
 const vmOrder = (a, b) => hostName(a.h).localeCompare(hostName(b.h)) || (a.ip && b.ip ? ipNum(a.ip) - ipNum(b.ip) : (a.ip ? -1 : b.ip ? 1 : 0)) || a.n.localeCompare(b.n);
+/** 顯示用的作業系統，例如「Windows Server 2019」 */
+const osText = v => [v.os, v.osv].filter(Boolean).join(" ");
 const vmSt = v => v.off ? ["已下架 " + v.off, "s-released"] : v.on ? ["上線", "s-used"] : ["關機", "s-stopped"];
 
 function renderVm() {
@@ -1046,19 +1054,20 @@ function renderVm() {
   fh.value = S.hosts.some(h => h.id === cur) ? cur : "";
   $("#tagList").replaceChildren(...[...new Set(S.vms.map(v => v.tag).filter(Boolean))].map(t => el("option", { value: t })));
 
-  const q = $("#q").value.trim().toLowerCase(), show = $("#fShow").value;
+  const q = $("#q").value.trim().toLowerCase(), show = $("#fShow").value, fos = $("#fOs").value;
   const list = S.vms.filter(v => {
     if (fh.value && v.h !== fh.value) return false;
+    if (fos && (fos === "-" ? v.os : v.os !== fos)) return false;
     if (show === "active" && v.off) return false;
     if (show === "on" && (v.off || !v.on)) return false;
     if (show === "off" && (v.off || v.on)) return false;
     if (show === "retired" && !v.off) return false;
-    if (q && ![v.n, v.ip, v.q, v.tag, v.note, hostName(v.h), ...(v.acc || []).flatMap(a => [a.u, ownerName(a)])].some(x => x && x.toLowerCase().includes(q))) return false;
+    if (q && ![v.n, v.ip, v.q, osText(v), v.tag, v.note, hostName(v.h), ...(v.acc || []).flatMap(a => [a.u, ownerName(a)])].some(x => x && x.toLowerCase().includes(q))) return false;
     return true;
   }).sort(vmOrder);
   $("#vmCount").textContent = list.length + " 台";
   const body = $("#vmBody");
-  if (!list.length) { body.replaceChildren(el("tr", null, el("td", { colspan: 12, class: "empty", text: S.vms.length ? "沒有符合的 VM" : "尚無資料" }))); return; }
+  if (!list.length) { body.replaceChildren(el("tr", null, el("td", { colspan: 13, class: "empty", text: S.vms.length ? "沒有符合的 VM" : "尚無資料" }))); return; }
   body.replaceChildren(...list.map(v => {
     const st = vmSt(v), nAcc = (v.acc || []).length;
     const conflict = v.ip && !v.off && stOf(A, v.ip) === "conflict";
@@ -1067,6 +1076,7 @@ function renderVm() {
       el("td", { text: v.n, title: v.note || "" }),
       el("td", { class: conflict ? "warnip" : "", text: (v.ip || "—") + (conflict ? " ⚠衝突" : "") }),
       el("td", null, el("span", { class: "tag " + st[1], text: st[0] })),
+      el("td", { text: osText(v) }),
       el("td", { class: "num", text: v.cpu ?? "" }), el("td", { class: "num", text: v.mem != null ? v.mem + " GiB" : "" }),
       el("td", { text: v.tag || "" }), el("td", { text: v.lv || "" }), el("td", { text: yn(v.px) }), el("td", { text: yn(v.edr) }),
       el("td", { class: "act" }, !RO && [el("button", { class: "sm", text: "編輯", onclick: () => openVm(v.id) }),
@@ -1162,6 +1172,7 @@ function openVm(id, presetIp) {
   if (!S.hosts.length) f.h.append(el("option", { value: "", text: "（請先在設定新增實體機）" }));
   const d = v || { h: $("#fHost").value || (S.hosts[0] && S.hosts[0].id) || "", on: 1, ip: presetIp || "" };
   f.h.value = d.h || ""; f.q.value = d.q || ""; f.n.value = d.n || ""; f.ip.value = d.ip || ""; f.on.checked = !!d.on;
+  f.os.value = d.os || ""; f.osv.value = d.osv || ""; osvHint();
   f.cpu.value = d.cpu ?? ""; f.mem.value = d.mem ?? ""; f.tag.value = d.tag || ""; f.lv.value = d.lv || "";
   f.px.value = d.px == null ? "" : String(d.px); f.edr.value = d.edr == null ? "" : String(d.edr);
   f.note.value = d.note || "";
@@ -1183,6 +1194,12 @@ function vmIpHint() {
   h.className = "hint full " + c.kind; h.textContent = ip + "：" + c.text;
 }
 vmForm.ip.addEventListener("input", vmIpHint);
+/** 版本的建議清單：同類別作業系統已經用過的版本，讓寫法一致（例如都寫「Server 2019」） */
+function osvHint() {
+  const os = vmForm.os.value;
+  $("#osvList").replaceChildren(...[...new Set(S.vms.filter(v => v.osv && (!os || v.os === os)).map(v => v.osv))].sort().map(x => el("option", { value: x })));
+}
+vmForm.os.addEventListener("change", osvHint);
 $("#btnNextIp").onclick = () => { const ip = nextFree(S, A); if (ip) { vmForm.ip.value = ip; vmIpHint(); } else toast("網段內沒有可用 IP", "bad"); };
 $("#btnVmCancel").onclick = () => $("#vmDlg").close();
 vmForm.addEventListener("submit", e => {
@@ -1191,7 +1208,7 @@ vmForm.addEventListener("submit", e => {
   const ip = normIp(f.ip.value);
   if (ip === null) return toast("IP 格式不正確", "bad");
   const data = {
-    h: f.h.value, q: f.q.value.trim(), n: f.n.value.trim(), on: f.on.checked ? 1 : 0, cpu: num(f.cpu.value), mem: num(f.mem.value),
+    h: f.h.value, q: f.q.value.trim(), n: f.n.value.trim(), on: f.on.checked ? 1 : 0, os: f.os.value, osv: f.osv.value.trim(), cpu: num(f.cpu.value), mem: num(f.mem.value),
     tag: f.tag.value.trim(), lv: f.lv.value, px: tri(f.px.value), edr: tri(f.edr.value), ip,
     note: f.note.value.trim()
   };
@@ -1598,7 +1615,7 @@ async function ghPut(repo, path, data, msg) {
 function ownerPayload(o) {
   const vms = S.vms.filter(v => !v.off)
     .map(v => ({ v, acc: (v.acc || []).filter(a => a.oid === o.id) })).filter(x => x.acc.length)
-    .map(({ v, acc }) => ({ id: v.id, vmid: v.q || "", name: v.n, ip: v.ip || "", host: hostName(v.h), accounts: acc.map(a => ({ id: a.id, u: a.u, p: a.p || "" })) }));
+    .map(({ v, acc }) => ({ id: v.id, vmid: v.q || "", name: v.n, ip: v.ip || "", host: hostName(v.h), os: osText(v), accounts: acc.map(a => ({ id: a.id, u: a.u, p: a.p || "" })) }));
   return { v: 1, owner: { code: o.code, name: o.n }, published: nowStamp(), vms };
 }
 /** 發佈給 MIS 的資料：管理員資料的完整副本，但帳號一律不含密碼 */
@@ -2115,14 +2132,14 @@ function renderOwner() {
     // 有待同步的變更時，顯示負責人送出的新值
     const ch = OC.changes.find(c => c.acc === a.id), cur = ch || a;
     return el("tr", null,
-      !i && [el("td", { ...span, text: v.name }), el("td", { ...span, text: v.ip || "—" }), el("td", { ...span, text: v.host || "—" }), el("td", { ...span, text: v.vmid || "—" })],
+      !i && [el("td", { ...span, text: v.name }), el("td", { ...span, text: v.ip || "—" }), el("td", { ...span, text: v.host || "—" }), el("td", { ...span, text: v.vmid || "—" }), el("td", { ...span, text: v.os || "—" })],
       el("td", null, cur.u, ch && " ", ch && el("span", { class: "tag s-applied", title: "已送出，管理員「發佈並同步」後生效", text: "待同步" })),
       el("td", null, el("span", { class: "pw", text: cur.p ? (show ? cur.p : "••••••") : "—" }),
         cur.p && " ", cur.p && el("button", { class: "sm", text: "複製", onclick: () => copyText(cur.p) }),
         " ", el("button", { class: "sm", text: "更新帳密", title: "登記 VM 上目前實際的帳號與密碼", onclick: () => openPw(a.id) })),
       el("td", null, el("button", { class: "sm", text: "＋ 分享", title: "登記把這個帳號提供給別人使用", onclick: () => openShare(null, a.id) }), cnt(nShare(a.id), "分享中")),
       !i && el("td", span, el("button", { class: "sm", text: "＋ 自建帳號", title: "登記在這台 VM 上自己建立的帳號", onclick: () => openCr(null, v.id) }), cnt(nCr(v.id), "使用中")));
-  })) : [el("tr", null, el("td", { colspan: 8, class: "empty", text: OD.published ? "目前沒有指派給你的帳號" : "尚無資料" }))]));
+  })) : [el("tr", null, el("td", { colspan: 9, class: "empty", text: OD.published ? "目前沒有指派給你的帳號" : "尚無資料" }))]));
   // 分享紀錄
   const sh = OR.shares.slice().sort(byDateDesc);
   $("#ovShareCount").textContent = sh.length ? sh.length + " 筆（分享中 " + sh.filter(r => !r.revoked).length + "）" : "";
@@ -2339,8 +2356,8 @@ copyGet().then(d => { copyDir = d; renderCopy(); });
 $("#btnVmXls").onclick = () => xlExport("VM清單_" + today() + ".xlsx", async () => {
   const wb = await xlWorkbook();
   xlTable(wb, "VM 清單", [{ h: "實體機", w: 10 }, { h: "VM ID", w: 12 }, { h: "名稱", w: 34 }, { h: "IP", w: 16 }, { h: "上線", w: 8 }, { h: "下架日", w: 12, date: true },
-    { h: "CPU", w: 8, num: true }, { h: "記憶體 GiB", w: 12, num: true }, { h: "標籤", w: 14 }, { h: "等級", w: 8 }, { h: "Proxy", w: 8 }, { h: "EDR", w: 8 }, { h: "備註", w: 40 }],
-    S.vms.map(v => [hostName(v.h), v.q, v.n, v.ip, v.on ? "是" : "否", v.off, v.cpu, v.mem, v.tag, v.lv, yn(v.px), yn(v.edr), v.note]));
+    { h: "作業系統", w: 10 }, { h: "版本", w: 16 }, { h: "CPU", w: 8, num: true }, { h: "記憶體 GiB", w: 12, num: true }, { h: "標籤", w: 14 }, { h: "等級", w: 8 }, { h: "Proxy", w: 8 }, { h: "EDR", w: 8 }, { h: "備註", w: 40 }],
+    S.vms.map(v => [hostName(v.h), v.q, v.n, v.ip, v.on ? "是" : "否", v.off, v.os, v.osv, v.cpu, v.mem, v.tag, v.lv, yn(v.px), yn(v.edr), v.note]));
   return wb;
 });
 $("#btnIpXls").onclick = () => xlExport("IP清單_" + today() + ".xlsx", async () => {
@@ -2352,7 +2369,7 @@ $("#btnIpXls").onclick = () => xlExport("IP清單_" + today() + ".xlsx", async (
 
 /* ---------- 事件 ---------- */
 document.querySelectorAll(".tabs button[data-tab]").forEach(b => b.onclick = () => { ui.tab = b.dataset.tab; try { localStorage.setItem("eas-vm-ip:tab", ui.tab); } catch (e) {} render(); });
-$("#q").oninput = renderVm; $("#fHost").onchange = renderVm; $("#fShow").onchange = renderVm;
+$("#q").oninput = renderVm; $("#fHost").onchange = renderVm; $("#fShow").onchange = renderVm; $("#fOs").onchange = renderVm;
 $("#qIp").oninput = () => renderIp(problems(S, A)); $("#fIpSt").onchange = () => renderIp(problems(S, A));
 $("#btnAddVm").onclick = () => openVm(null);
 $("#btnApply").onclick = () => openApply("");
