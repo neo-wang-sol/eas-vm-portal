@@ -2178,7 +2178,8 @@ function renderOwner() {
   const show = $("#ovShowPw").checked, nAcc = ownAccs().length;
   const nShare = id => OR.shares.filter(r => r.acc === id && !r.revoked).length;
   const nCr = id => OR.created.filter(r => !r.disabled && (recVm(r) || {}).id === id).length;
-  const cnt = (n, t) => n ? el("span", { class: "mute", style: "font-size:12px", text: " " + t + " " + n }) : "";
+  // 和管理員「帳號管理 (2)」相同：數量放在按鈕文字的括號裡
+  const cnt = (t, n) => t + (n ? " (" + n + ")" : "");
   $("#ovCount").textContent = nAcc ? OD.vms.length + " 台 VM · " + nAcc + " 個帳號" : "";
   // 和管理員的 VM 清單相同排序：實體機 → IP → 名稱（沒有 IP 的排在該實體機最後）
   const vms = OD.vms.slice().sort((a, b) => a.host.localeCompare(b.host) ||
@@ -2193,8 +2194,8 @@ function renderOwner() {
       el("td", null, el("span", { class: "pw", text: cur.p ? (show ? cur.p : "••••••") : "—" }),
         cur.p && " ", cur.p && el("button", { class: "sm", text: "複製", onclick: () => copyText(cur.p) }),
         " ", el("button", { class: "sm", text: "更新帳密", title: "登記 VM 上目前實際的帳號與密碼", onclick: () => openPw(a.id) })),
-      el("td", null, el("button", { class: "sm", text: "＋ 分享", title: "登記把這個帳號提供給別人使用", onclick: () => openShare(null, a.id) }), cnt(nShare(a.id), "分享中")),
-      !i && el("td", span, el("button", { class: "sm", text: "＋ 自建帳號", title: "登記在這台 VM 上自己建立的帳號", onclick: () => openCr(null, v.id) }), cnt(nCr(v.id), "使用中")));
+      el("td", null, el("button", { class: "sm", text: cnt("＋ 分享", nShare(a.id)), title: "登記把這個帳號提供給別人使用（括號為分享中的數量）", onclick: () => openShare(null, a.id) })),
+      !i && el("td", span, el("button", { class: "sm", text: cnt("＋ 自建帳號", nCr(v.id)), title: "登記在這台 VM 上自己建立的帳號（括號為使用中的數量）", onclick: () => openCr(null, v.id) })));
   })) : [el("tr", null, el("td", { colspan: 9, class: "empty", text: OD.published ? "目前沒有指派給你的帳號" : "尚無資料" }))]));
   // 分享紀錄
   const sh = OR.shares.slice().sort(byDateDesc);
