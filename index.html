@@ -34,6 +34,7 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--pri2);border-col
 .tblwrap{overflow:auto;background:var(--card);border:1px solid var(--line);border-radius:10px}
 table{border-collapse:collapse;width:100%;white-space:nowrap}
 th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:left}
+th[data-sort]{cursor:pointer;user-select:none}th[data-sort]:hover{color:var(--pri)}
 th{background:#f8f9fb;font-weight:600;font-size:12px;color:var(--mute);position:sticky;top:0}
 tr.retired td{color:var(--mute);text-decoration:line-through}
 tr.retired td.act{text-decoration:none}
@@ -180,7 +181,7 @@ section.set h3{margin:0 0 8px;font-size:14px}
       <button class="pri rw" id="btnAddVm">＋ 新增 VM</button>
     </div>
     <div class="tblwrap"><table>
-      <thead><tr><th>實體機</th><th>VM ID</th><th>名稱</th><th>IP</th><th>狀態</th><th>OS</th><th>CPU</th><th>記憶體</th><th>標籤</th><th>等級</th><th>Proxy</th><th>EDR</th><th></th></tr></thead>
+      <thead id="vmHead"><tr><th data-sort="h">實體機</th><th data-sort="q">VM ID</th><th data-sort="n">名稱</th><th data-sort="ip">IP</th><th>狀態</th><th data-sort="os">OS</th><th data-sort="cpu">CPU</th><th data-sort="mem">記憶體</th><th>標籤</th><th>等級</th><th>Proxy</th><th>EDR</th><th></th></tr></thead>
       <tbody id="vmBody"></tbody>
     </table></div>
   </div>
@@ -1038,6 +1039,21 @@ function render() {
 const vmOrder = (a, b) => hostName(a.h).localeCompare(hostName(b.h)) || (a.ip && b.ip ? ipNum(a.ip) - ipNum(b.ip) : (a.ip ? -1 : b.ip ? 1 : 0)) || a.n.localeCompare(b.n);
 /** 顯示用的作業系統，例如「Windows Server 2019」 */
 const osText = v => [v.os, v.osv].filter(Boolean).join(" ");
+/** VM 清單點標題排序：k 為欄位（空白＝預設的實體機 → IP → 名稱），dir 1 由小到大、-1 由大到小 */
+const VM_SORT_KEY = "eas-vm-portal:vmsort";
+try { ui.vmSort = JSON.parse(localStorage.getItem(VM_SORT_KEY)) || { k: "", dir: 1 }; } catch (e) { ui.vmSort = { k: "", dir: 1 }; }
+// 各欄的排序值；沒有值的一律排在最後（不論升冪或降冪）
+const vmSortVal = {
+  q: v => { const m = /\d+/.exec(v.q || ""); return m ? +m[0] : null; },   // VM ID 照數字排，例如 qemu/99 在 qemu/101 前面
+  n: v => v.n, ip: v => v.ip ? ipNum(v.ip) : null, os: v => osText(v) || null, cpu: v => v.cpu, mem: v => v.mem
+};
+function vmSortCmp(a, b) {
+  const { k, dir } = ui.vmSort, f = vmSortVal[k];
+  if (!f) return vmOrder(a, b);
+  const x = f(a), y = f(b);
+  if (x == null || y == null) return (x == null) - (y == null) || vmOrder(a, b);
+  return (typeof x === "string" ? x.localeCompare(y) : x - y) * dir || vmOrder(a, b);
+}
 const vmSt = v => v.off ? ["已下架 " + v.off, "s-released"] : v.on ? ["上線", "s-used"] : ["關機", "s-stopped"];
 
 function renderVm() {
@@ -1064,7 +1080,13 @@ function renderVm() {
     if (show === "retired" && !v.off) return false;
     if (q && ![v.n, v.ip, v.q, osText(v), v.tag, v.note, hostName(v.h), ...(v.acc || []).flatMap(a => [a.u, ownerName(a)])].some(x => x && x.toLowerCase().includes(q))) return false;
     return true;
-  }).sort(vmOrder);
+  }).sort(vmSortCmp);
+  document.querySelectorAll("#vmHead th[data-sort]").forEach(th => {
+    th.dataset.label = th.dataset.label || th.textContent;
+    const on = th.dataset.sort === ui.vmSort.k;
+    th.textContent = th.dataset.label + (on ? (ui.vmSort.dir > 0 ? " ▲" : " ▼") : "");
+    th.title = th.dataset.sort === "h" ? "點一下回到預設排序（實體機 → IP → 名稱）" : "點一下排序，再點一次反向";
+  });
   $("#vmCount").textContent = list.length + " 台";
   const body = $("#vmBody");
   if (!list.length) { body.replaceChildren(el("tr", null, el("td", { colspan: 13, class: "empty", text: S.vms.length ? "沒有符合的 VM" : "尚無資料" }))); return; }
@@ -2369,6 +2391,12 @@ $("#btnIpXls").onclick = () => xlExport("IP清單_" + today() + ".xlsx", async (
 
 /* ---------- 事件 ---------- */
 document.querySelectorAll(".tabs button[data-tab]").forEach(b => b.onclick = () => { ui.tab = b.dataset.tab; try { localStorage.setItem("eas-vm-ip:tab", ui.tab); } catch (e) {} render(); });
+document.querySelectorAll("#vmHead th[data-sort]").forEach(th => th.onclick = () => {
+  const k = th.dataset.sort === "h" ? "" : th.dataset.sort;
+  ui.vmSort = k && ui.vmSort.k === k ? { k, dir: -ui.vmSort.dir } : { k, dir: 1 };
+  try { localStorage.setItem(VM_SORT_KEY, JSON.stringify(ui.vmSort)); } catch (e) {}
+  renderVm();
+});
 $("#q").oninput = renderVm; $("#fHost").onchange = renderVm; $("#fShow").onchange = renderVm; $("#fOs").onchange = renderVm;
 $("#qIp").oninput = () => renderIp(problems(S, A)); $("#fIpSt").onchange = () => renderIp(problems(S, A));
 $("#btnAddVm").onclick = () => openVm(null);
