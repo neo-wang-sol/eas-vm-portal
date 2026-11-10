@@ -62,6 +62,9 @@ td.num{text-align:right}
 .info { background: #eef3fd; border: 1px solid #c9d7f7; color: #1e3a8a; border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; font-size: 13px; }
 .ovsec { margin-bottom: 6px; }
 #ovInfoDlg { width: min(420px, 94vw); }
+#vmInfoDlg { width: min(460px, 94vw); }
+#vmInfo { grid-template-columns: 80px 1fr; }
+#vmInfo div { white-space: pre-wrap; word-break: break-word; }
 #ovInfo { grid-template-columns: 100px 1fr; }
 .ovhint { font-size: 12px; margin: 0 0 8px; }
 .fixed { padding: 6px 0; color: var(--text); font-size: 14px; font-weight: 600; }
@@ -443,6 +446,13 @@ section.set h3{margin:0 0 8px;font-size:14px}
   <h2 id="ovTitle">負責人</h2>
   <div class="kv" id="ovInfo"></div>
   <div class="foot"><button type="button" class="pri" id="btnOvInfoClose">關閉</button></div>
+</div></dialog>
+
+<!-- VM 內容（MIS、負責人在清單上點兩下查看，只能看） -->
+<dialog id="vmInfoDlg"><div class="dlg">
+  <h2 id="vmInfoTitle">VM</h2>
+  <div class="kv" id="vmInfo"></div>
+  <div class="foot"><button type="button" class="pri" id="btnVmInfoClose">關閉</button></div>
 </div></dialog>
 
 <!-- 負責人：更新帳密 -->
@@ -832,6 +842,7 @@ function cleanOwnerData(d) {
     // 舊版發佈的資料沒有 VM id，暫用名稱代替，管理員重新發佈後就會補上
     vms: arr(d.vms).filter(isObj).map(v => ({
       id: str(v.id) || str(v.name), vmid: str(v.vmid), name: str(v.name), ip: str(v.ip), host: str(v.host), os: str(v.os),
+      st: str(v.st), cpu: num(v.cpu), mem: num(v.mem), tag: str(v.tag), lv: str(v.lv), px: tri(v.px), edr: tri(v.edr), note: str(v.note),
       accounts: arr(v.accounts).filter(isObj).map(a => ({ id: str(a.id), u: str(a.u), p: typeof a.p === "string" ? a.p : "" })).filter(a => a.id && a.u)
     })).filter(v => v.id)
   };
@@ -1054,6 +1065,15 @@ function vmSortCmp(a, b) {
   if (x == null || y == null) return (x == null) - (y == null) || vmOrder(a, b);
   return (typeof x === "string" ? x.localeCompare(y) : x - y) * dir || vmOrder(a, b);
 }
+/** 只能看的 VM 內容視窗（MIS、負責人）：rows 為 [欄位, 值]，沒有值顯示「—」 */
+function showVmInfo(name, rows) {
+  $("#vmInfoTitle").textContent = name;
+  $("#vmInfo").replaceChildren(...rows.flatMap(([k, v]) => [el("div", { text: k }), el("div", { text: v == null || v === "" ? "—" : String(v) })]));
+  $("#vmInfoDlg").showModal();
+}
+$("#btnVmInfoClose").onclick = () => $("#vmInfoDlg").close();
+/** 列上點兩下開啟；點在按鈕等控制項上不算，避免連點按鈕時順便開啟視窗 */
+const onDbl = fn => e => { if (!e.target.closest("button, input, select, textarea, a")) fn(); };
 const vmSt = v => v.off ? ["已下架 " + v.off, "s-released"] : v.on ? ["上線", "s-used"] : ["關機", "s-stopped"];
 
 function renderVm() {
@@ -1093,7 +1113,7 @@ function renderVm() {
   body.replaceChildren(...list.map(v => {
     const st = vmSt(v), nAcc = (v.acc || []).length;
     const conflict = v.ip && !v.off && stOf(A, v.ip) === "conflict";
-    return el("tr", { class: v.off ? "retired" : "", ondblclick: RO ? null : () => openVm(v.id) },
+    return el("tr", { class: v.off ? "retired" : "", title: RO ? "點兩下查看內容" : "點兩下編輯", ondblclick: onDbl(() => RO ? viewVm(v.id) : openVm(v.id)) },
       el("td", { text: hostName(v.h) }), el("td", { text: v.q || "" }),
       el("td", { text: v.n, title: v.note || "" }),
       el("td", { class: conflict ? "warnip" : "", text: (v.ip || "—") + (conflict ? " ⚠衝突" : "") }),
@@ -1101,8 +1121,7 @@ function renderVm() {
       el("td", { text: osText(v) }),
       el("td", { class: "num", text: v.cpu ?? "" }), el("td", { class: "num", text: v.mem != null ? v.mem + " GiB" : "" }),
       el("td", { text: v.tag || "" }), el("td", { text: v.lv || "" }), el("td", { text: yn(v.px) }), el("td", { text: yn(v.edr) }),
-      el("td", { class: "act" }, !RO && [el("button", { class: "sm", text: "編輯", onclick: () => openVm(v.id) }),
-        " ", el("button", { class: "sm", text: "帳號管理" + (nAcc ? " (" + nAcc + ")" : ""), onclick: () => openAcc(v.id) }),
+      el("td", { class: "act" }, !RO && [el("button", { class: "sm", text: "帳號管理" + (nAcc ? " (" + nAcc + ")" : ""), onclick: () => openAcc(v.id) }),
         !v.off && " ", !v.off && el("button", { class: "sm danger", text: "下架", onclick: () => retireVm(v.id) })]));
   }));
 }
@@ -1184,6 +1203,14 @@ function renderDetail() {
 
 /* ---------- VM 編輯 ---------- */
 const vmForm = $("#vmForm");
+/** MIS：VM 內容（只能看，帳號不含密碼） */
+function viewVm(id) {
+  const v = S.vms.find(x => x.id === id);
+  if (!v) return;
+  showVmInfo(v.n, [["實體機", hostName(v.h)], ["VM ID", v.q], ["IP", v.ip], ["狀態", vmSt(v)[0]], ["作業系統", osText(v)],
+    ["CPU", v.cpu], ["記憶體", v.mem != null ? v.mem + " GiB" : ""], ["標籤", v.tag], ["等級", v.lv], ["Proxy", yn(v.px)], ["EDR", yn(v.edr)],
+    ["帳號", (v.acc || []).map(a => a.u + "（" + ownerName(a) + "）").join("\n")], ["備註", v.note]]);
+}
 function openVm(id, presetIp) {
   if (RO) return;
   const v = id ? S.vms.find(x => x.id === id) : null;
@@ -1637,7 +1664,9 @@ async function ghPut(repo, path, data, msg) {
 function ownerPayload(o) {
   const vms = S.vms.filter(v => !v.off)
     .map(v => ({ v, acc: (v.acc || []).filter(a => a.oid === o.id) })).filter(x => x.acc.length)
-    .map(({ v, acc }) => ({ id: v.id, vmid: v.q || "", name: v.n, ip: v.ip || "", host: hostName(v.h), os: osText(v), accounts: acc.map(a => ({ id: a.id, u: a.u, p: a.p || "" })) }));
+    .map(({ v, acc }) => ({ id: v.id, vmid: v.q || "", name: v.n, ip: v.ip || "", host: hostName(v.h), os: osText(v),
+      st: v.on ? "上線" : "關機", cpu: v.cpu ?? null, mem: v.mem ?? null, tag: v.tag || "", lv: v.lv || "", px: v.px ?? null, edr: v.edr ?? null, note: v.note || "",
+      accounts: acc.map(a => ({ id: a.id, u: a.u, p: a.p || "" })) }));
   return { v: 1, owner: { code: o.code, name: o.n }, published: nowStamp(), vms };
 }
 /** 發佈給 MIS 的資料：管理員資料的完整副本，但帳號一律不含密碼 */
@@ -2130,6 +2159,12 @@ function crVm(r) {
 const goneTag = x => x.gone ? el("span", { class: "mute", text: "（已不在你的清單）" }) : "";
 const stTag = (end, on, off) => el("span", { class: "tag " + (end ? "s-released" : "s-used"), text: end ? off + " " + end : on });
 const byDateDesc = (x, y) => (y.date || "").localeCompare(x.date || "") || (y.updated || "").localeCompare(x.updated || "");
+/** 負責人：VM 內容（只能看；管理員發佈時附上的資料） */
+function ownVmInfo(v) {
+  showVmInfo(v.name, [["實體機", v.host], ["VM ID", v.vmid], ["IP", v.ip], ["狀態", v.st], ["作業系統", v.os],
+    ["CPU", v.cpu], ["記憶體", v.mem != null ? v.mem + " GiB" : ""], ["標籤", v.tag], ["等級", v.lv], ["Proxy", yn(v.px)], ["EDR", yn(v.edr)],
+    ["我的帳號", v.accounts.map(a => a.u).join("\n")], ["備註", v.note]]);
+}
 function renderOwner() {
   const name = OD.owner.name;
   $("#ovTitle").textContent = "負責人" + (name ? "：" + name : "");
@@ -2153,7 +2188,7 @@ function renderOwner() {
     const span = { rowspan: v.accounts.length, class: "top" };
     // 有待同步的變更時，顯示負責人送出的新值
     const ch = OC.changes.find(c => c.acc === a.id), cur = ch || a;
-    return el("tr", null,
+    return el("tr", { title: "點兩下查看 VM 內容", ondblclick: onDbl(() => ownVmInfo(v)) },
       !i && [el("td", { ...span, text: v.name }), el("td", { ...span, text: v.ip || "—" }), el("td", { ...span, text: v.host || "—" }), el("td", { ...span, text: v.vmid || "—" }), el("td", { ...span, text: v.os || "—" })],
       el("td", null, cur.u, ch && " ", ch && el("span", { class: "tag s-applied", title: "已送出，管理員「發佈並同步」後生效", text: "待同步" })),
       el("td", null, el("span", { class: "pw", text: cur.p ? (show ? cur.p : "••••••") : "—" }),
