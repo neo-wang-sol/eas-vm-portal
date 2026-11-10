@@ -2194,7 +2194,7 @@ function renderOwner() {
     // 有待同步的變更時，顯示負責人送出的新值
     const ch = OC.changes.find(c => c.acc === a.id), cur = ch || a;
     return el("tr", { title: "點兩下查看 VM 內容", ondblclick: onDbl(() => ownVmInfo(v)) },
-      !i && [el("td", { ...span, text: v.name }), el("td", { ...span, text: v.ip || "—" }), el("td", { ...span, text: v.host || "—" }), el("td", { ...span, text: v.vmid || "—" }), el("td", { ...span, text: v.os || "—" })],
+      !i && [el("td", { ...span, text: v.name }), el("td", { ...span, text: v.ip || "—" }), el("td", { ...span, text: v.host || "—" }), el("td", { ...span, text: v.vmid || "—" }), el("td", { ...span, text: v.os ? v.os.split(" ")[0] : "—", title: v.os })],
       el("td", null, cur.u, ch && " ", ch && el("span", { class: "tag s-applied", title: "已送出，管理員「發佈並同步」後生效", text: "待同步" })),
       el("td", null, el("span", { class: "pw", text: cur.p ? (show ? cur.p : "••••••") : "—" }),
         cur.p && " ", cur.p && el("button", { class: "sm", text: "複製", onclick: () => copyText(cur.p) }),
