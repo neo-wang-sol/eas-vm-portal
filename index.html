@@ -1120,7 +1120,7 @@ function renderVm() {
       el("td", null, el("span", { class: "tag " + st[1], text: st[0] })),
       el("td", { text: osText(v) }),
       el("td", { class: "num", text: v.cpu ?? "" }), el("td", { class: "num", text: v.mem != null ? v.mem + " GiB" : "" }),
-      el("td", { text: v.tag || "" }), el("td", { text: v.lv || "" }), el("td", { text: yn(v.px) }), el("td", { text: yn(v.edr) }),
+      el("td", { text: v.tag || "" }), el("td", { text: v.lv || "—" }), el("td", { text: yn(v.px) }), el("td", { text: yn(v.edr) }),
       el("td", { class: "act" }, !RO && [el("button", { class: "sm", text: "帳號管理" + (nAcc ? " (" + nAcc + ")" : ""), onclick: () => openAcc(v.id) }),
         !v.off && " ", !v.off && el("button", { class: "sm danger", text: "下架", onclick: () => retireVm(v.id) })]));
   }));
@@ -2413,7 +2413,7 @@ $("#btnVmXls").onclick = () => xlExport("VM清單_" + today() + ".xlsx", async (
   const wb = await xlWorkbook();
   xlTable(wb, "VM 清單", [{ h: "實體機", w: 10 }, { h: "VM ID", w: 12 }, { h: "名稱", w: 34 }, { h: "IP", w: 16 }, { h: "上線", w: 8 }, { h: "下架日", w: 12, date: true },
     { h: "作業系統", w: 10 }, { h: "版本", w: 16 }, { h: "CPU", w: 8, num: true }, { h: "記憶體 GiB", w: 12, num: true }, { h: "標籤", w: 14 }, { h: "等級", w: 8 }, { h: "Proxy", w: 8 }, { h: "EDR", w: 8 }, { h: "備註", w: 40 }],
-    S.vms.map(v => [hostName(v.h), v.q, v.n, v.ip, v.on ? "是" : "否", v.off, v.os, v.osv, v.cpu, v.mem, v.tag, v.lv, yn(v.px), yn(v.edr), v.note]));
+    S.vms.map(v => [hostName(v.h), v.q, v.n, v.ip, v.on ? "是" : "否", v.off, v.os, v.osv, v.cpu, v.mem, v.tag, v.lv || "—", yn(v.px), yn(v.edr), v.note]));
   return wb;
 });
 $("#btnIpXls").onclick = () => xlExport("IP清單_" + today() + ".xlsx", async () => {
