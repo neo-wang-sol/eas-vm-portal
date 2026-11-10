@@ -1122,7 +1122,7 @@ function renderVm() {
       el("td", { text: v.n, title: v.note || "" }),
       el("td", { class: conflict ? "warnip" : "", text: (v.ip || "—") + (conflict ? " ⚠衝突" : "") }),
       el("td", null, el("span", { class: "tag " + st[1], text: st[0] })),
-      el("td", { text: osText(v) }),
+      el("td", { text: v.os || "", title: osText(v) }),   // 清單只顯示類別，版本放在滑鼠提示
       el("td", { class: "num", text: v.cpu ?? "" }), el("td", { class: "num", text: v.mem != null ? v.mem + " GiB" : "" }),
       el("td", { text: v.tag || "" }), el("td", { text: v.lv || "—" }), el("td", { text: yn(v.px) }), el("td", { text: yn(v.edr) }), el("td", { text: yn(v.bk) + (v.bkn ? " *" : ""), title: v.bkn || "" }),
       el("td", { class: "act" }, !RO && [el("button", { class: "sm", text: "帳號管理" + (nAcc ? " (" + nAcc + ")" : ""), onclick: () => openAcc(v.id) }),
