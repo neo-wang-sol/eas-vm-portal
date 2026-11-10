@@ -148,17 +148,17 @@ section.set h3{margin:0 0 8px;font-size:14px}
     </div>
     <div id="ov-share" hidden>
       <div class="bar ovsec"><span class="mute" id="ovShareCount"></span></div>
-      <div class="mute ovhint">新增請到「我的 VM」分頁，在帳號旁按「＋ 分享」。收回後請填上收回日期。</div>
+      <div class="mute ovhint">新增請到「我的 VM」分頁，在帳號旁按「＋ 分享」。收回時點兩下該筆紀錄，填上收回日期。</div>
       <div class="tblwrap"><table>
-        <thead><tr><th>帳號</th><th>分享對象</th><th>分享日期</th><th>原因</th><th>狀態</th><th>備註</th><th>最後修改</th><th></th></tr></thead>
+        <thead><tr><th>帳號</th><th>分享對象</th><th>分享日期</th><th>原因</th><th>狀態</th><th>備註</th><th>最後修改</th></tr></thead>
         <tbody id="ovShareBody"></tbody>
       </table></div>
     </div>
     <div id="ov-cr" hidden>
       <div class="bar ovsec"><span class="mute" id="ovCrCount"></span></div>
-      <div class="mute ovhint">新增請到「我的 VM」分頁，在 VM 旁按「＋ 自建帳號」（不用填密碼）。停用或刪除後請填上停用日期。</div>
+      <div class="mute ovhint">新增請到「我的 VM」分頁，在 VM 旁按「＋ 自建帳號」（不用填密碼）。停用或刪除後，點兩下該筆紀錄填上停用日期。</div>
       <div class="tblwrap"><table>
-        <thead><tr><th>VM</th><th>帳號</th><th>權限</th><th>使用者</th><th>建立日期</th><th>用途</th><th>狀態</th><th>備註</th><th>最後修改</th><th></th></tr></thead>
+        <thead><tr><th>VM</th><th>帳號</th><th>權限</th><th>使用者</th><th>建立日期</th><th>用途</th><th>狀態</th><th>備註</th><th>最後修改</th></tr></thead>
         <tbody id="ovCrBody"></tbody>
       </table></div>
     </div>
@@ -251,7 +251,7 @@ section.set h3{margin:0 0 8px;font-size:14px}
       <button class="pri rw" id="btnAddOwn">＋ 新增負責人</button>
     </div>
     <div class="tblwrap"><table>
-      <thead><tr><th>名稱</th><th>代號</th><th>GitHub repo</th><th>聯絡方式</th><th>token 到期日</th><th>狀態</th><th>帳號</th><th>VM</th><th>同步紀錄</th><th>備註</th><th></th></tr></thead>
+      <thead><tr><th>名稱</th><th>代號</th><th>GitHub repo</th><th>聯絡方式</th><th>token 到期日</th><th>狀態</th><th>帳號</th><th>VM</th><th>同步紀錄</th><th>備註</th></tr></thead>
       <tbody id="ownBody"></tbody>
     </table></div>
   </div>
@@ -1500,15 +1500,14 @@ function renderOwn() {
   $("#ownCount").textContent = list.length + " 位";
   $("#ownBody").replaceChildren(...(list.length ? list.map(o => {
     const u = ownerUse(o.id), e = expInfo(o.exp);
-    return el("tr", { ondblclick: RO ? null : () => openOwner(o.id) },
+    return el("tr", { title: RO ? "" : "點兩下編輯", ondblclick: RO ? null : () => openOwner(o.id) },
       el("td", { text: o.n }), el("td", { text: o.code }), el("td", { class: "mute", text: OWNER_REPO + o.code }),
       el("td", { text: o.contact || "" }), el("td", { class: e[1], text: e[0] }),
       el("td", null, el("span", { class: "tag " + (o.off ? "s-released" : "s-used"), text: o.off ? "停用" : "啟用" })),
       el("td", { class: "num", text: u.n }), el("td", { class: "num", text: u.vms }),
       el("td", { class: "mute", text: recSummary(o.id) }),
-      el("td", { class: "note", text: o.note || "", title: o.note || "" }),
-      el("td", { class: "act" }, !RO && el("button", { class: "sm", text: "編輯", onclick: () => openOwner(o.id) })));
-  }) : [el("tr", null, el("td", { colspan: 11, class: "empty", text: S.owners.length ? "沒有符合的負責人" : "還沒有負責人，請按「＋ 新增負責人」" }))]));
+      el("td", { class: "note", text: o.note || "", title: o.note || "" }));
+  }) : [el("tr", null, el("td", { colspan: 10, class: "empty", text: S.owners.length ? "沒有符合的負責人" : "還沒有負責人，請按「＋ 新增負責人」" }))]));
 }
 function mapTo(name, oid) {
   if (RO) return;
@@ -2202,22 +2201,21 @@ function renderOwner() {
   $("#ovShareCount").textContent = sh.length ? sh.length + " 筆（分享中 " + sh.filter(r => !r.revoked).length + "）" : "";
   $("#ovShareBody").replaceChildren(...(sh.length ? sh.map(r => {
     const x = shareAcc(r);
-    return el("tr", { ondblclick: () => openShare(r.id) },
+    return el("tr", { title: "點兩下編輯", ondblclick: () => openShare(r.id) },
       el("td", null, x.text, goneTag(x)), el("td", { text: r.to || "" }), el("td", { text: r.date || "" }), el("td", { class: "note", text: r.reason || "", title: r.reason || "" }),
       el("td", null, stTag(r.revoked, "分享中", "已收回")), el("td", { class: "note", text: r.note || "", title: r.note || "" }),
-      el("td", { class: "mute", text: r.updated || "" }), el("td", { class: "act" }, el("button", { class: "sm", text: "編輯", onclick: () => openShare(r.id) })));
-  }) : [el("tr", null, el("td", { colspan: 8, class: "empty", text: "還沒有分享紀錄。請到「我的 VM」分頁，在帳號旁按「＋ 分享」" }))]));
+      el("td", { class: "mute", text: r.updated || "" }));
+  }) : [el("tr", null, el("td", { colspan: 7, class: "empty", text: "還沒有分享紀錄。請到「我的 VM」分頁，在帳號旁按「＋ 分享」" }))]));
   // 自建帳號
   const cr = OR.created.slice().sort(byDateDesc);
   $("#ovCrCount").textContent = cr.length ? cr.length + " 筆（使用中 " + cr.filter(r => !r.disabled).length + "）" : "";
   $("#ovCrBody").replaceChildren(...(cr.length ? cr.map(r => {
     const x = crVm(r);
-    return el("tr", { ondblclick: () => openCr(r.id) },
+    return el("tr", { title: "點兩下編輯", ondblclick: () => openCr(r.id) },
       el("td", null, x.text, goneTag(x)), el("td", { text: r.u || "" }), el("td", { text: r.perm || "" }), el("td", { text: r.user || "" }), el("td", { text: r.date || "" }),
       el("td", { class: "note", text: r.purpose || "", title: r.purpose || "" }), el("td", null, stTag(r.disabled, "使用中", "已停用")),
-      el("td", { class: "note", text: r.note || "", title: r.note || "" }), el("td", { class: "mute", text: r.updated || "" }),
-      el("td", { class: "act" }, el("button", { class: "sm", text: "編輯", onclick: () => openCr(r.id) })));
-  }) : [el("tr", null, el("td", { colspan: 10, class: "empty", text: "還沒有自建帳號紀錄。請到「我的 VM」分頁，在 VM 旁按「＋ 自建帳號」" }))]));
+      el("td", { class: "note", text: r.note || "", title: r.note || "" }), el("td", { class: "mute", text: r.updated || "" }));
+  }) : [el("tr", null, el("td", { colspan: 9, class: "empty", text: "還沒有自建帳號紀錄。請到「我的 VM」分頁，在 VM 旁按「＋ 自建帳號」" }))]));
 }
 $("#ovShowPw").onchange = renderOwner;
 /** 兩筆紀錄除了最後修改時間以外是否相同 */
